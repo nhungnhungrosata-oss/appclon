@@ -1,0 +1,48 @@
+name: Smoke deployed site
+on:
+  deployment_status:
+permissions:
+  contents: read
+jobs:
+  smoke:
+    if: github.event.deployment_status.state == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify real Vercel frontend and API
+        run: |
+          node --input-type=module <<'JS'
+          import { readFileSync, appendFileSync } from 'node:fs';
+          const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
+          const address = event.deployment_status.environment_url || event.deployment_status.target_url;
+          const base = new URL(address);
+          if (base.protocol !== 'https:' || !base.hostname.endsWith('.vercel.app')) throw new Error('Expected an HTTPS Vercel deployment URL');
+          console.log('Deployment URL:', base.origin);
+          const get = path => fetch(new URL(path, base), { redirect: 'manual', signal: AbortSignal.timeout(20000) });
+          const home = await get('/');
+          if (home.status === 401 || home.status === 302 || home.status === 307) {
+            const note = 'Runtime probe NOT verified: Vercel deployment protection requires an authorized browser. No protection was bypassed.';
+            console.log(note);
+            appendFileSync(process.env.GITHUB_STEP_SUMMARY, note + '\n');
+            process.exit(0);
+          }
+          if (home.status !== 200 || !(await home.text()).includes('app.js')) throw new Error('Homepage did not load the ClipLab app');
+          for (const path of ['/app.js', '/media.js', '/fish-handoff.js', '/styles.css']) {
+            const response = await get(path);
+            const body = await response.text();
+            if (response.status !== 200 || body.length < 100 || body.trimStart().startsWith('<!DOCTYPE')) throw new Error('Missing/invalid static asset: ' + path);
+            console.log('PASS', path, response.status, body.length, 'characters');
+          }
+          const health = await get('/api/index?action=health');
+          const data = await health.json();
+          if (health.status !== 200 || data.ok !== true || data.service !== 'cliplab') throw new Error('Backend health check failed');
+          console.log('PASS backend health: HTTP 200');
+          const session = await get('/api/index?action=session');
+          const auth = await session.json();
+          if (session.status !== 401 || auth.code !== 'UNAUTHENTICATED') throw new Error('Protected API must reject unauthenticated sessions');
+          console.log('PASS unauthenticated session: HTTP 401');
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY, 'PASS: deployed homepage, four assets, backend health and authentication guard.\n\nURL: ' + base.origin + '\n\nExternal AI providers and authenticated workflows were not called.\n');
+          JS
