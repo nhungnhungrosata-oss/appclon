@@ -9,3 +9,6 @@ for (const file of await readdir('public')) {
 }
 JSON.parse(await readFile('vercel.json', 'utf8'));
 console.log('Build passed: native ES modules, static frontend, Node.js API. No bundler required.');
+// Fail at build time when a server import/export was lost during an upload.
+const { default: handler } = await import('../api/index.js');
+if (typeof handler !== 'function') throw new Error('api/index.js must export the Node request handler');
