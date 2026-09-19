@@ -9,11 +9,13 @@ export default async function handler(req, res) {
     const url = new URL(req.url, 'https://localhost');
     const action = url.searchParams.get('action') || 'session';
     if (!['GET', 'POST'].includes(req.method)) fail(405, 'Method not allowed.');
+    // Public liveness probe: no credentials, provider calls, or configuration values.
+    if (action === 'health' && req.method === 'GET') return json(res, { ok: true, service: 'cliplab' });
     if (req.method === 'POST') checkOrigin(req);
     if (action === 'login' && req.method === 'POST') {
       const b = await readJson(req, 4000);
       const ip = String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown').split(',')[0];
-      await limit(\`login:\${sha(ip)}\`, 12, 900);
+      await limit(`login:${sha(ip)}`, 12, 900);
       secret();
       const all = users();
       if (!Object.keys(all).length) fail(503, 'Chạy npm run setup hoặc cấu hình APP_PASSWORD và SESSION_SECRET trên Vercel.', 'SETUP_REQUIRED');
@@ -41,7 +43,7 @@ export default async function handler(req, res) {
     if (req.method !== 'POST') fail(405, 'Method not allowed.');
     if (['fal-upload', 'lip-submit', 'lip-status', 'lip-cancel'].includes(action)) fail(410, 'Tích hợp lip-sync cũ đã gỡ. Mở Fish Creative trong mục Lip-sync; bản này chưa tích hợp API tạo video của Fish.', 'LIPSYNC_WEB_ONLY');
     const user = session.username;
-    await limit(\`burst:\${sha(user)}\`, 240, 60);
+    await limit(`burst:${sha(user)}`, 240, 60);
     if (action === 'google-chunk') {
       const b = await readBody(req, 2 * 1024 * 1024);
       return json(res, await googleChunk(user, req.headers['x-upload-ticket'], b));

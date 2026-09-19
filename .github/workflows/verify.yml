@@ -1,0 +1,26 @@
+name: Verify deployment
+on:
+  push:
+    branches: [main, fix/restore-vercel-deployment]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: verify-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install without lifecycle scripts
+        run: npm ci --ignore-scripts
+      - name: Build and validate source
+        run: npm run build
+      - name: Unit, HTTP API and deployment regression tests
+        run: npm test
