@@ -1,0 +1,50 @@
+name: Restore verified ClipLab source
+on:
+  push:
+    branches: [fix/restore-vercel-deployment]
+    paths:
+      - '.repair/**'
+      - '.github/workflows/restore-source.yml'
+permissions:
+  contents: write
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/restore-vercel-deployment
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Restore exact verified source files
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, lzma
+          from pathlib import Path
+          parts = sorted(Path('.repair').glob('source-*.xzpart'))
+          assert len(parts) == 4, 'Incomplete restoration payload'
+          payload = b''.join(p.read_bytes() for p in parts)
+          assert hashlib.sha256(payload).hexdigest() == '819d754cc793b85d964ee52cbfba2a1c3c64ed2f92dc18d2d0c24b91faefaa34', 'Checksum mismatch'
+          files = json.loads(lzma.decompress(payload))
+          allowed = {'public/app.js', 'public/styles.css', 'public/media.js', 'public/fish-handoff.js', 'tests/api.test.mjs', 'tests/core.test.mjs', 'tests/handoff.test.mjs', 'tests/providers.test.mjs', 'tests/deployment.test.mjs', 'api/index.js', 'lib/providers.mjs', 'scripts/build.mjs'}
+          assert set(files) == allowed, 'Unexpected restoration paths'
+          for name, content in files.items():
+              assert isinstance(content, str)
+              path = Path(name)
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_text(content, encoding='utf-8')
+          print('Restored 12 checksum-verified source files')
+          PY
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - run: npm test
+      - name: Commit only tested source to repair branch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add public/app.js public/styles.css public/media.js public/fish-handoff.js tests/api.test.mjs tests/core.test.mjs tests/handoff.test.mjs tests/providers.test.mjs tests/deployment.test.mjs api/index.js lib/providers.mjs scripts/build.mjs
+          git diff --cached --quiet && exit 0
+          git commit -m 'fix: restore frontend and tests, repair API syntax and add health check'
+          git push origin HEAD:fix/restore-vercel-deployment
