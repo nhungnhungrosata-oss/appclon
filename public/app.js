@@ -1,4 +1,4 @@
-import { initDB, put, all, remove, clear, blobUrl, releaseUrls, download, pause, cleanMime, durationOf, sampleFrames, toBase64, extractSpeechChunks, composeAlignedSpeech, mediaDuration, replaceVideoAudio, Recorder } from './media.js';
+import { initDB, put, all, remove, clear, blobUrl, releaseUrls, download, pause, cleanMime, durationOf, sampleFrames, toBase64, extractSpeechChunks, composeAlignedSpeech, trimSpeechAudio, replaceVideoAudio, Recorder } from './media.js';
 
 const $ = (s, root = document) => root.querySelector(s);
 const $$ = (s, root = document) => [...root.querySelectorAll(s)];
@@ -192,11 +192,38 @@ function setCloneProgress(stage,progress,status=''){
  if($('#clone-progress'))$('#clone-progress').style.width=S.cloneJob.progress+'%';
  if(status&&$('#clone-status'))$('#clone-status').textContent=status;
 }
-function normalizeCloneSegments(rows,duration){
- const segments=rows.filter(x=>x&&typeof x.text==='string'&&x.text.trim()&&Number.isFinite(x.start)&&Number.isFinite(x.end)&&x.end>x.start)
+function normalizeWordText(words){
+ return words.map(w=>String(w.word||'').trim()).filter(Boolean).join(' ')
+  .replace(/\s+([,.;:!?…])/g,'$1').replace(/([“"'(\[])\s+/g,'$1').replace(/\s+([”"')\]])/g,'$1').trim();
+}
+function splitLongCloneSegment(segment,words){
+ if(segment.end-segment.start<=5.2)return [segment];
+ const inside=words.filter(w=>Number.isFinite(w.start)&&Number.isFinite(w.end)&&w.word&&w.start>=segment.start-.12&&w.end<=segment.end+.12).sort((a,b)=>a.start-b.start);
+ if(inside.length<3)return [segment];
+ const groups=[];let group=[];let groupStart=inside[0].start;
+ for(let i=0;i<inside.length;i++){
+  const word=inside[i];group.push(word);
+  const next=inside[i+1];
+  const span=word.end-groupStart;
+  const pause=next?next.start-word.end:0;
+  const punct=/[.!?…,:;]$/.test(String(word.word||'').trim());
+  const shouldBreak=!next||span>=4.2||(span>=1.8&&(pause>=.22||punct));
+  if(shouldBreak){
+   const text=normalizeWordText(group);
+   if(text)groups.push({id:segment.id+'-'+groups.length,start:group[0].start,end:group.at(-1).end,text});
+   group=[];if(next)groupStart=next.start;
+  }
+ }
+ return groups.length>1?groups:[segment];
+}
+function normalizeCloneSegments(rows,words,duration){
+ const cleanWords=(words||[]).filter(w=>w&&typeof w.word==='string'&&w.word.trim()&&Number.isFinite(w.start)&&Number.isFinite(w.end)&&w.end>w.start)
+  .map(w=>({start:Math.max(0,Number(w.start)),end:Math.min(duration,Number(w.end)),word:w.word.trim()})).filter(w=>w.end>w.start);
+ const base=rows.filter(x=>x&&typeof x.text==='string'&&x.text.trim()&&Number.isFinite(x.start)&&Number.isFinite(x.end)&&x.end>x.start)
   .map((x,i)=>({id:x.id||String(i),start:Math.max(0,Number(x.start)),end:Math.min(duration,Number(x.end)),text:x.text.trim()}))
   .filter(x=>x.end>x.start).sort((a,b)=>a.start-b.start);
- while(segments.length>40){
+ const segments=base.flatMap(s=>splitLongCloneSegment(s,cleanWords)).sort((a,b)=>a.start-b.start);
+ while(segments.length>60){
   let best=0,bestGap=Infinity;
   for(let i=0;i<segments.length-1;i++){const gap=Math.max(0,segments[i+1].start-segments[i].end);if(gap<bestGap){bestGap=gap;best=i}}
   const a=segments[best],b=segments[best+1];
@@ -234,14 +261,14 @@ async function transcribeCloneVideo(){
  if(!S.session.assignedVoice)throw new Error('Admin chưa cấp giọng cho tài khoản này.');
  S.cloneJob=newCloneJob(source.id);setCloneProgress('Tách lời thoại',5,'Đang tách audio khỏi video...');
  const extracted=await extractSpeechChunks(source.blob,40,(n,total)=>setCloneProgress('Tách lời thoại',5+Math.round(n/total*10)));
- const rows=[];
+ const rows=[],words=[];
  for(let i=0;i<extracted.chunks.length;i++){
   const chunk=extracted.chunks[i];
   setCloneProgress('Nhận dạng lời thoại',15+Math.round(i/extracted.chunks.length*35),`Đang nhận dạng đoạn ${i+1}/${extracted.chunks.length}...`);
   const data=await api('clone-transcribe',{audioBase64:await toBase64(chunk.blob),offset:chunk.offset,duration:chunk.duration,consent:true});
-  rows.push(...(data.segments||[]));
+  rows.push(...(data.segments||[]));words.push(...(data.words||[]));
  }
- const segments=normalizeCloneSegments(rows,source.duration);
+ const segments=normalizeCloneSegments(rows,words,source.duration);
  if(!segments.length)throw new Error('Không nhận thấy lời thoại tiếng Việt rõ ràng trong video.');
  S.cloneJob.segments=segments;S.cloneJob.sourceDuration=source.duration;S.cloneJob.alignedAudio=null;S.cloneJob.resultVideo=null;
  setCloneProgress('Chờ kiểm tra lời thoại',50,`Đã nhận dạng ${segments.length} đoạn. Hãy kiểm tra nội dung trước khi tạo giọng.`);
@@ -263,23 +290,36 @@ async function fetchIbeeAudio(token){
  if(!r.ok){let d={};try{d=await r.json()}catch{}throw new Error(d.error||'Không tải được audio Ibee.')}
  return r.blob();
 }
-async function synthesizeCloneSegment(seg,index,total){
- const target=Math.max(.45,seg.end-seg.start);let speed=1,last=null;
- for(let attempt=0;attempt<2;attempt++){
-  setCloneProgress('Tạo giọng Ibee',52+Math.round((index+(attempt*.35))/total*30),`Đoạn ${index+1}/${total}: tạo giọng ${speed.toFixed(2)}x...`);
+async function synthesizeCloneSegment(seg,index,total,initialSpeed=1){
+ const target=Math.max(.45,seg.end-seg.start);
+ let speed=Math.max(.25,Math.min(1.9,Number(initialSpeed)||1));
+ let best=null;
+ const tolerance=Math.max(.07,target*.025);
+ for(let attempt=0;attempt<3;attempt++){
+  setCloneProgress('Tạo giọng Ibee',52+Math.round((index+(attempt*.22))/total*30),`Đoạn ${index+1}/${total}: căn thời lượng ${speed.toFixed(2)}x...`);
   const sub=await api('tts-submit',{text:seg.text,speed,consent:true});
   await waitIbee(sub.token,`Đoạn ${index+1}/${total}`);
-  const blob=await fetchIbeeAudio(sub.token);const duration=await mediaDuration(blob,'audio');
-  last={blob,duration,speed};
+  const raw=await fetchIbeeAudio(sub.token);
+  const speech=await trimSpeechAudio(raw);
+  const duration=speech.duration;
+  const error=duration-target;
+  const absError=Math.abs(error);
+  const candidate={blob:speech.blob,duration,speed,error,trimmed:speech.trimmed,leading:speech.leading,trailing:speech.trailing};
+  if(!best||absError<Math.abs(best.error))best=candidate;
+  if(absError<=tolerance)break;
+
   const ratio=duration/target;
-  if(attempt===0&&(ratio>1.04||ratio<0.82)){
-   const next=Math.max(.25,Math.min(1.9,speed*ratio));
-   if(Math.abs(next-speed)>.04){speed=next;continue}
-  }
-  break;
+  const next=Math.max(.25,Math.min(1.9,speed*ratio));
+  if(Math.abs(next-speed)<.015)break;
+  speed=Number(next.toFixed(3));
  }
- if(last.duration>target*1.08)throw new Error(`Đoạn ${index+1} dài ${last.duration.toFixed(1)}s nhưng khung chỉ ${target.toFixed(1)}s. Hãy kiểm tra transcript hoặc video nguồn.`);
- return {start:seg.start,end:seg.end,text:seg.text,blob:last.blob,duration:last.duration,speed:last.speed};
+ if(!best)throw new Error(`Không tạo được audio cho đoạn ${index+1}.`);
+ const maxAllowed=Math.max(.16,target*.045);
+ if(Math.abs(best.error)>maxAllowed){
+  const direction=best.error<0?'nhanh':'chậm';
+  throw new Error(`Đoạn ${index+1} vẫn ${direction} lệch ${Math.abs(best.error).toFixed(2)}s sau khi tự căn tốc độ. Hãy kiểm tra lời thoại đoạn này.`);
+ }
+ return {start:seg.start,end:seg.end,text:seg.text,blob:best.blob,duration:best.duration,speed:best.speed,timingError:best.error};
 }
 async function synthesizeCloneTimeline(){
  ensureProvider('vbee');requireConsent('#clone-consent');
@@ -288,13 +328,19 @@ async function synthesizeCloneTimeline(){
  $$('#clone-transcript-list [data-clone-segment]').forEach(el=>{const i=Number(el.dataset.cloneSegment);if(S.cloneJob.segments[i])S.cloneJob.segments[i].text=el.value.trim()});
  if(S.cloneJob.segments.some(s=>!s.text))throw new Error('Không được để trống lời thoại.');
  await saveCloneJob();
- const audio=[];
- for(let i=0;i<S.cloneJob.segments.length;i++)audio.push(await synthesizeCloneSegment(S.cloneJob.segments[i],i,S.cloneJob.segments.length));
+ const audio=[];let calibratedSpeed=1;
+ for(let i=0;i<S.cloneJob.segments.length;i++){
+  const fitted=await synthesizeCloneSegment(S.cloneJob.segments[i],i,S.cloneJob.segments.length,calibratedSpeed);
+  audio.push(fitted);
+  calibratedSpeed=Math.max(.25,Math.min(1.9,calibratedSpeed*.35+fitted.speed*.65));
+ }
  setCloneProgress('Dựng timeline audio',84,'Đang đặt từng câu vào đúng mốc thời gian...');
  const aligned=await composeAlignedSpeech(audio,source.duration,(n,total)=>setCloneProgress('Dựng timeline audio',84+Math.round(n/total*6)));
- S.cloneJob.alignedAudio={id:'clone-aligned-'+Date.now(),kind:'audio',blob:aligned.blob,duration:aligned.duration,createdAt:Date.now()};
+ const maxError=Math.max(...audio.map(x=>Math.abs(x.timingError||0)));
+ const avgError=audio.reduce((sum,x)=>sum+Math.abs(x.timingError||0),0)/audio.length;
+ S.cloneJob.alignedAudio={id:'clone-aligned-'+Date.now(),kind:'audio',blob:aligned.blob,duration:aligned.duration,createdAt:Date.now(),maxTimingError:maxError,avgTimingError:avgError,calibratedSpeed};
  S.cloneJob.segmentAudio=[];S.cloneJob.resultVideo=null;
- setCloneProgress('Sẵn sàng ghép video',90,'Audio mới đã khớp timeline. Nghe thử trước khi ghép vào video gốc.');
+ setCloneProgress('Sẵn sàng ghép video',90,`Đã khóa timeline. Sai lệch lớn nhất ${maxError.toFixed(2)}s · trung bình ${avgError.toFixed(2)}s. Nghe thử trước khi ghép.`);
  await saveCloneJob();renderCloneState();
 }
 async function renderCloneVideo(){
