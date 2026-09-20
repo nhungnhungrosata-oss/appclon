@@ -6,6 +6,7 @@ import handler from '../api/index.js';
 process.env.APP_PASSWORD='test-only-password-123456';
 process.env.SESSION_SECRET='test-only-secret-DO-NOT-USE-IN-PRODUCTION-123456';
 process.env.APP_USERS_JSON='{}';
+process.env.OPENAI_API_KEY='sk-proj-testkey-9CgA';
 delete process.env.UPSTASH_REDIS_REST_URL;
 delete process.env.UPSTASH_REDIS_REST_TOKEN;
 
@@ -26,7 +27,7 @@ test('admin login exposes Vbee provider state without secrets',async()=>{
   assert.ok(!JSON.stringify(d).includes(process.env.SESSION_SECRET));
 });
 test('admin state lists ten children plus admin',async()=>{
-  const r=await req('admin-state',{}); assert.equal(r.status,200); const d=await r.json(); assert.equal(d.users.length,11); assert.equal(d.redis,false);
+  const r=await req('admin-state',{}); assert.equal(r.status,200); const d=await r.json(); assert.equal(d.users.length,11); assert.equal(d.redis,false); assert.equal(d.diagnostics.openai.hint,'sk-proj-…9CgA'); assert.ok(!JSON.stringify(d).includes('sk-proj-testkey-9CgA'));
 });
 test('adding a voice fails closed until shared Redis is configured',async()=>{
   const r=await req('admin-add-voice',{label:'Giọng Pro',code:'professional-voice-code'}); assert.equal(r.status,503); assert.equal((await r.json()).code,'REDIS_REQUIRED');
