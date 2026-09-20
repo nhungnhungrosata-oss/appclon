@@ -92,8 +92,8 @@ export default async function handler(req, res) {
       if (session.role !== 'admin') fail(403, 'Chỉ admin được quản lý.');
       if (!hasRedis()) fail(503, 'Cần Upstash Redis để lưu danh sách giọng.', 'REDIS_REQUIRED');
       const label = text(b.label, 'Tên giọng', 80);
-      const code = text(b.code, 'Mã giọng Vbee', 180);
-      if (!/^[a-zA-Z0-9._:-]{2,180}$/.test(code)) fail(400, 'Mã giọng Vbee không hợp lệ.');
+      const code = text(b.code, 'Mã giọng Ibee', 180);
+      if (!/^[a-zA-Z0-9._:-]{2,180}$/.test(code)) fail(400, 'Mã giọng Ibee không hợp lệ.');
       const voices = await get('vbee-professional-voices') || [];
       const next = [...voices.filter(v => v.code !== code), { code, label, kind: 'professional_clone' }];
       await setPersistent('vbee-professional-voices', next);
