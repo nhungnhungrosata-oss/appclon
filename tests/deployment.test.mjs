@@ -123,3 +123,19 @@ test('clone final render cannot require removed Sync API and core assets bypass 
     assert.ok(rule.headers.some(h=>h.key==='Cache-Control'&&/no-store/.test(h.value)));
   }
 });
+
+
+test('clone timing uses active speech, adaptive speed and tight per-segment tolerance',async()=>{
+  const frontend=await readFile('public/app.js','utf8');
+  const media=await readFile('public/media.js','utf8');
+  assert.match(frontend,/trimSpeechAudio/);
+  assert.match(frontend,/initialSpeed=1/);
+  assert.match(frontend,/calibratedSpeed=1/);
+  assert.match(frontend,/target\*\.025/);
+  assert.match(frontend,/target\*\.045/);
+  assert.match(frontend,/normalizeCloneSegments\(rows,words,source\.duration\)/);
+  assert.match(frontend,/splitLongCloneSegment/);
+  assert.doesNotMatch(frontend,/ratio>1\.04\|\|ratio<0\.82/);
+  assert.match(media,/export async function trimSpeechAudio/);
+  assert.match(media,/rms >= threshold/);
+});
