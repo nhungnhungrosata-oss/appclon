@@ -192,11 +192,38 @@ function setCloneProgress(stage,progress,status=''){
  if($('#clone-progress'))$('#clone-progress').style.width=S.cloneJob.progress+'%';
  if(status&&$('#clone-status'))$('#clone-status').textContent=status;
 }
-function normalizeCloneSegments(rows,duration){
- const segments=rows.filter(x=>x&&typeof x.text==='string'&&x.text.trim()&&Number.isFinite(x.start)&&Number.isFinite(x.end)&&x.end>x.start)
+function normalizeWordText(words){
+ return words.map(w=>String(w.word||'').trim()).filter(Boolean).join(' ')
+  .replace(/\s+([,.;:!?…])/g,'$1').replace(/([“"'(\[])\s+/g,'$1').replace(/\s+([”"')\]])/g,'$1').trim();
+}
+function splitLongCloneSegment(segment,words){
+ if(segment.end-segment.start<=5.2)return [segment];
+ const inside=words.filter(w=>Number.isFinite(w.start)&&Number.isFinite(w.end)&&w.word&&w.start>=segment.start-.12&&w.end<=segment.end+.12).sort((a,b)=>a.start-b.start);
+ if(inside.length<3)return [segment];
+ const groups=[];let group=[];let groupStart=inside[0].start;
+ for(let i=0;i<inside.length;i++){
+  const word=inside[i];group.push(word);
+  const next=inside[i+1];
+  const span=word.end-groupStart;
+  const pause=next?next.start-word.end:0;
+  const punct=/[.!?…,:;]$/.test(String(word.word||'').trim());
+  const shouldBreak=!next||span>=4.2||(span>=1.8&&(pause>=.22||punct));
+  if(shouldBreak){
+   const text=normalizeWordText(group);
+   if(text)groups.push({id:segment.id+'-'+groups.length,start:group[0].start,end:group.at(-1).end,text});
+   group=[];if(next)groupStart=next.start;
+  }
+ }
+ return groups.length>1?groups:[segment];
+}
+function normalizeCloneSegments(rows,words,duration){
+ const cleanWords=(words||[]).filter(w=>w&&typeof w.word==='string'&&w.word.trim()&&Number.isFinite(w.start)&&Number.isFinite(w.end)&&w.end>w.start)
+  .map(w=>({start:Math.max(0,Number(w.start)),end:Math.min(duration,Number(w.end)),word:w.word.trim()})).filter(w=>w.end>w.start);
+ const base=rows.filter(x=>x&&typeof x.text==='string'&&x.text.trim()&&Number.isFinite(x.start)&&Number.isFinite(x.end)&&x.end>x.start)
   .map((x,i)=>({id:x.id||String(i),start:Math.max(0,Number(x.start)),end:Math.min(duration,Number(x.end)),text:x.text.trim()}))
   .filter(x=>x.end>x.start).sort((a,b)=>a.start-b.start);
- while(segments.length>40){
+ const segments=base.flatMap(s=>splitLongCloneSegment(s,cleanWords)).sort((a,b)=>a.start-b.start);
+ while(segments.length>60){
   let best=0,bestGap=Infinity;
   for(let i=0;i<segments.length-1;i++){const gap=Math.max(0,segments[i+1].start-segments[i].end);if(gap<bestGap){bestGap=gap;best=i}}
   const a=segments[best],b=segments[best+1];
@@ -234,14 +261,14 @@ async function transcribeCloneVideo(){
  if(!S.session.assignedVoice)throw new Error('Admin chưa cấp giọng cho tài khoản này.');
  S.cloneJob=newCloneJob(source.id);setCloneProgress('Tách lời thoại',5,'Đang tách audio khỏi video...');
  const extracted=await extractSpeechChunks(source.blob,40,(n,total)=>setCloneProgress('Tách lời thoại',5+Math.round(n/total*10)));
- const rows=[];
+ const rows=[],words=[];
  for(let i=0;i<extracted.chunks.length;i++){
   const chunk=extracted.chunks[i];
   setCloneProgress('Nhận dạng lời thoại',15+Math.round(i/extracted.chunks.length*35),`Đang nhận dạng đoạn ${i+1}/${extracted.chunks.length}...`);
   const data=await api('clone-transcribe',{audioBase64:await toBase64(chunk.blob),offset:chunk.offset,duration:chunk.duration,consent:true});
-  rows.push(...(data.segments||[]));
+  rows.push(...(data.segments||[]));words.push(...(data.words||[]));
  }
- const segments=normalizeCloneSegments(rows,source.duration);
+ const segments=normalizeCloneSegments(rows,words,source.duration);
  if(!segments.length)throw new Error('Không nhận thấy lời thoại tiếng Việt rõ ràng trong video.');
  S.cloneJob.segments=segments;S.cloneJob.sourceDuration=source.duration;S.cloneJob.alignedAudio=null;S.cloneJob.resultVideo=null;
  setCloneProgress('Chờ kiểm tra lời thoại',50,`Đã nhận dạng ${segments.length} đoạn. Hãy kiểm tra nội dung trước khi tạo giọng.`);
