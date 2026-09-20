@@ -13,11 +13,12 @@ test('static deployment assets exist and local imports resolve',async()=>{
   }
 });
 
-test('frontend has Vbee admin flow and no Fish/Lip Sync UI',async()=>{
+test('frontend uses Ibee branding and custom voice menu name',async()=>{
   const source=await readFile('public/app.js','utf8');
-  assert.match(source,/Vbee/);
+  assert.match(source,/Tên Giọng của Tôi/);
+  assert.match(source,/Ibee/);
   assert.match(source,/admin-assign-voice/);
-  assert.doesNotMatch(source,/Fish Audio|FISH FREE|Lip Sync|fish-handoff/);
+  assert.doesNotMatch(source,/Vbee|VBEE|Fish Audio|FISH FREE|Lip Sync|fish-handoff/);
 });
 
 test('Vercel config keeps Node API and static public output',async()=>{
