@@ -15,7 +15,8 @@ test('static deployment assets exist and local imports resolve',async()=>{
 
 test('frontend uses Ibee branding and custom voice menu name',async()=>{
   const source=await readFile('public/app.js','utf8');
-  assert.match(source,/Tên Giọng của Tôi/);
+  assert.match(source,/Giọng Của Tôi/);
+  assert.doesNotMatch(source,/Tên Giọng của Tôi/);
   assert.match(source,/Ibee/);
   assert.match(source,/admin-assign-voice/);
   assert.doesNotMatch(source,/Vbee|VBEE|Fish Audio|FISH FREE|Lip Sync|fish-handoff/);
@@ -65,4 +66,13 @@ test('Ibee player uses authenticated same-origin audio proxy with range support'
   assert.match(api,/Content-Range/);
   assert.match(providers,/export async function vbeeAudio/);
   assert.match(providers,/redirect: 'follow'/);
+});
+
+
+test('member accounts cannot see or navigate to Settings',async()=>{
+  const source=await readFile('public/app.js','utf8');
+  assert.match(source,/const canOpenPage=page=>page!=='settings'\|\|S\.session\?\.role==='admin'/);
+  assert.match(source,/filter\(\(\[p\]\)=>canOpenPage\(p\)\)/);
+  assert.match(source,/!canOpenPage\(page\)/);
+  assert.match(source,/if\(S\.session\.role==='admin'\)renderSettings\(\)/);
 });
