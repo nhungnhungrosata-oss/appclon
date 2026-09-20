@@ -28,8 +28,7 @@ Bắt buộc cho đăng nhập:
 Vbee:
 
 - `VBEE_APP_ID`
-- `VBEE_ACCESS_TOKEN`
-- `VBEE_API_BASE_URL` — mặc định `https://vbee.vn/api/v1`; có thể đổi theo endpoint của ứng dụng Vbee.
+- `VBEE_TOKEN` — token API tạo cùng App ID trên Vbee. App vẫn đọc `VBEE_ACCESS_TOKEN` cũ nếu anh chưa đổi biến ngay.
 
 Các AI khác:
 
