@@ -182,6 +182,68 @@ export async function mediaDuration(blob, kind = 'audio') {
   return durationOf(blob, kind);
 }
 
+export async function trimSpeechAudio(blob, {
+  floor = 0.0025,
+  relative = 0.02,
+  frameMs = 10,
+  padMs = 35
+} = {}) {
+  if (!(blob instanceof Blob) || blob.size < 32) throw new Error('Audio Ibee không hợp lệ.');
+  const Audio = window.AudioContext || window.webkitAudioContext;
+  if (!Audio) throw new Error('Trình duyệt chưa hỗ trợ phân tích audio.');
+  const ctx = new Audio();
+  try {
+    const decoded = await ctx.decodeAudioData(await blob.arrayBuffer());
+    const channels = decoded.numberOfChannels;
+    const length = decoded.length;
+    const rate = decoded.sampleRate;
+    if (!length || !Number.isFinite(decoded.duration) || decoded.duration <= 0) throw new Error('Không đọc được audio Ibee.');
+
+    const mono = new Float32Array(length);
+    let peak = 0;
+    for (let ch = 0; ch < channels; ch++) {
+      const data = decoded.getChannelData(ch);
+      for (let i = 0; i < length; i++) mono[i] += data[i] / channels;
+    }
+    for (let i = 0; i < length; i++) peak = Math.max(peak, Math.abs(mono[i]));
+    if (peak < 1e-5) throw new Error('Audio Ibee không có tiếng.');
+
+    const threshold = Math.max(floor, peak * relative);
+    const frame = Math.max(32, Math.floor(rate * frameMs / 1000));
+    let first = -1, last = -1;
+    for (let start = 0; start < length; start += frame) {
+      const end = Math.min(length, start + frame);
+      let sum = 0;
+      for (let i = start; i < end; i++) sum += mono[i] * mono[i];
+      const rms = Math.sqrt(sum / Math.max(1, end - start));
+      if (rms >= threshold) {
+        if (first < 0) first = start;
+        last = end;
+      }
+    }
+    if (first < 0 || last <= first) return { blob, duration: decoded.duration, trimmed: false, leading: 0, trailing: 0 };
+
+    const pad = Math.floor(rate * padMs / 1000);
+    const start = Math.max(0, first - pad);
+    const end = Math.min(length, last + pad);
+    const samples = new Float32Array(end - start);
+    samples.set(mono.subarray(start, end));
+    const leading = start / rate;
+    const trailing = (length - end) / rate;
+    const duration = samples.length / rate;
+    const materiallyTrimmed = leading > 0.03 || trailing > 0.03;
+    return {
+      blob: materiallyTrimmed ? wavMono(samples, rate) : blob,
+      duration,
+      trimmed: materiallyTrimmed,
+      leading,
+      trailing
+    };
+  } finally {
+    await ctx.close();
+  }
+}
+
 function waitMedia(el, event, timeout = 15000) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => { cleanup(); reject(new Error('Trình duyệt tải media quá chậm.')); }, timeout);
