@@ -6,7 +6,7 @@ ClipLab chạy Node.js 22 + Vercel. Chức năng hiện tại:
 - phân tích video bằng Google Gemini;
 - viết kịch bản bằng DeepSeek hoặc OpenAI;
 - tạo MP3 bằng Vbee AIVoice;
-- **Clon giọng Video**: nhận dạng lời thoại/timeline, tái tạo bằng giọng Ibee được cấp và lip-sync video;
+- **Clon giọng Video**: nhận dạng lời thoại/timeline, tái tạo bằng giọng Ibee được cấp rồi thay track tiếng của video ngay trên trình duyệt;
 - admin quản lý danh sách giọng **Nhân bản chuyên nghiệp** và gán giọng cho từng tài khoản con.
 
 Fish Voice và Fish Lip Sync đã được gỡ khỏi ứng dụng.
@@ -37,8 +37,6 @@ Các AI khác:
 - `DEEPSEEK_API_KEY`
 - `OPENAI_API_KEY` — dùng cả viết kịch bản và nhận dạng lời thoại cho Clon giọng Video
 - `OPENAI_TRANSCRIBE_MODEL=whisper-1`
-- `SYNC_API_KEY` — API key Sync Labs cho lip-sync video
-- `SYNC_LIPSYNC_MODEL=lipsync-2` — có thể đổi `lipsync-2-pro` hoặc `sync-3`
 
 Đa tài khoản cần Upstash Redis:
 
@@ -87,7 +85,7 @@ Luồng:
 3. Người dùng kiểm tra/sửa transcript nhưng timeline được giữ nguyên.
 4. Ibee tạo từng câu bằng voice code admin đã cấp. App đo duration và tối đa một lần điều chỉnh speed để cố khớp slot thời gian.
 5. Web Audio API dựng WAV mới trên đúng timeline video.
-6. Backend xin presigned upload URL từ Sync Labs; trình duyệt upload video/WAV trực tiếp tới Sync, tránh giới hạn body của Vercel.
-7. Sync Labs tạo lip-sync async; app poll kết quả rồi cleanup input assets.
+6. Trình duyệt giữ nguyên video nguồn, loại track tiếng cũ và ghép track Ibee mới bằng MediaStream + MediaRecorder.
+7. Không gửi video sang dịch vụ lip-sync bên thứ ba; không cần `SYNC_API_KEY` và không phát sinh phí lip-sync.
 
-Giới hạn chất lượng: phiên bản đầu tối ưu cho một người nói chính, tiếng Việt, video tối đa 3 phút, không hát và không hội thoại chồng tiếng. Ibee public API là TTS nên không thể sao chép tuyệt đối đường cong cao độ/biểu cảm của giọng nguồn như một hệ speech-to-speech. Transcript phải được người dùng duyệt trước khi render nếu yêu cầu giữ nguyên 100% nội dung.
+Giới hạn chất lượng: phiên bản đầu tối ưu cho một người nói chính, tiếng Việt, video tối đa 3 phút, không hát và không hội thoại chồng tiếng. Hình ảnh/khẩu hình video gốc không bị AI chỉnh sửa; độ khớp miệng phụ thuộc việc audio Ibee bám sát timeline lời nguồn. Ibee public API là TTS nên không thể sao chép tuyệt đối đường cong cao độ/biểu cảm của giọng nguồn như một hệ speech-to-speech. Transcript phải được người dùng duyệt trước khi render nếu yêu cầu giữ nguyên 100% nội dung. Bước ghép video chạy theo thời gian thực trên trình duyệt và có thể mã hóa lại file, nên codec/dung lượng có thể thay đổi.
