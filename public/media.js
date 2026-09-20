@@ -386,19 +386,91 @@ export async function replaceVideoAudio(videoBlob, audioBlob, expectedDuration, 
   }
 }
 export class Recorder {
-  stream = null; recorder = null; recording = false;
+  stream = null; rawStream = null; recorder = null; recording = false;
+  portrait = false; sourceVideo = null; canvas = null; canvasStream = null; frameHandle = null;
+
   async open({ video = true, facing = 'user', portrait = false, audio = true } = {}) {
     this.close();
     if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) throw new Error('Cần Chrome/Edge/Safari mới và HTTPS (hoặc localhost) để quay/thu.');
-    this.stream = await navigator.mediaDevices.getUserMedia({ video: video ? { facingMode: { ideal: facing }, width: { ideal: portrait ? 720 : 1280 }, height: { ideal: portrait ? 1280 : 720 }, frameRate: { ideal: 25, max: 30 } } : false, audio: audio ? { echoCancellation: video, noiseSuppression: video } : false });
+
+    this.portrait = !!(video && portrait);
+    this.rawStream = await navigator.mediaDevices.getUserMedia({
+      video: video ? {
+        facingMode: { ideal: facing },
+        width: { ideal: portrait ? 720 : 1280 },
+        height: { ideal: portrait ? 1280 : 720 },
+        aspectRatio: { ideal: portrait ? 9 / 16 : 16 / 9 },
+        frameRate: { ideal: 25, max: 30 }
+      } : false,
+      audio: audio ? { echoCancellation: video, noiseSuppression: video } : false
+    });
+
     this.isVideo = video;
+    if (!this.portrait) {
+      this.stream = this.rawStream;
+      return this.stream;
+    }
+
+    if (!document.createElement('canvas').captureStream) {
+      this.rawStream.getTracks().forEach(t => t.stop());
+      this.rawStream = null;
+      throw new Error('Trình duyệt này chưa hỗ trợ quay dọc 9:16 thật. Hãy dùng Chrome hoặc Edge mới.');
+    }
+
+    const source = document.createElement('video');
+    source.muted = true;
+    source.playsInline = true;
+    source.autoplay = true;
+    source.srcObject = this.rawStream;
+    const ready = event(source, 'loadedmetadata', 12000);
+    await source.play().catch(() => {});
+    await ready;
+    if (!source.videoWidth || !source.videoHeight) throw new Error('Không đọc được kích thước camera.');
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 720;
+    canvas.height = 1280;
+    const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+    if (!ctx) throw new Error('Không tạo được khung hình dọc.');
+
+    const draw = () => {
+      const sw = source.videoWidth, sh = source.videoHeight;
+      if (sw && sh && source.readyState >= 2) {
+        const targetRatio = 9 / 16;
+        const sourceRatio = sw / sh;
+        let sx = 0, sy = 0, cw = sw, ch = sh;
+        if (sourceRatio > targetRatio) {
+          cw = sh * targetRatio;
+          sx = (sw - cw) / 2;
+        } else if (sourceRatio < targetRatio) {
+          ch = sw / targetRatio;
+          sy = (sh - ch) / 2;
+        }
+        ctx.drawImage(source, sx, sy, cw, ch, 0, 0, canvas.width, canvas.height);
+      }
+      if ('requestVideoFrameCallback' in source) this.frameHandle = source.requestVideoFrameCallback(draw);
+      else this.frameHandle = requestAnimationFrame(draw);
+    };
+    draw();
+
+    const canvasStream = canvas.captureStream(30);
+    const videoTrack = canvasStream.getVideoTracks()[0];
+    if (!videoTrack) throw new Error('Không tạo được stream dọc 9:16.');
+
+    const audioTracks = this.rawStream.getAudioTracks();
+    this.sourceVideo = source;
+    this.canvas = canvas;
+    this.canvasStream = canvasStream;
+    this.stream = new MediaStream([videoTrack, ...audioTracks]);
     return this.stream;
   }
+
   start(maxSeconds = 180, tick = () => {}) {
     if (!this.stream) throw new Error('Hãy mở camera/micro trước.');
     const choices = this.isVideo ? ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4'] : ['audio/webm;codecs=opus', 'audio/mp4', 'audio/webm'];
     const mime = choices.find(x => MediaRecorder.isTypeSupported(x));
-    this.recorder = new MediaRecorder(this.stream, { ...(mime ? { mimeType: mime } : {}), ...(this.isVideo ? { videoBitsPerSecond: 1500000, audioBitsPerSecond: 96000 } : { audioBitsPerSecond: 128000 }) });
+    const videoBitsPerSecond = this.portrait ? 2600000 : 1500000;
+    this.recorder = new MediaRecorder(this.stream, { ...(mime ? { mimeType: mime } : {}), ...(this.isVideo ? { videoBitsPerSecond, audioBitsPerSecond: 96000 } : { audioBitsPerSecond: 128000 }) });
     this.chunks = []; this.recording = true; this.startedAt = performance.now();
     this.done = new Promise((resolve, reject) => {
       this.recorder.ondataavailable = e => { if (e.data.size) this.chunks.push(e.data); };
@@ -406,13 +478,32 @@ export class Recorder {
       this.recorder.onstop = () => {
         const duration = (performance.now() - this.startedAt) / 1000;
         const blob = new Blob(this.chunks, { type: this.recorder.mimeType.split(';')[0] });
-        this.recording = false; clearInterval(this.timer); resolve({ blob, duration });
+        this.recording = false; clearInterval(this.timer);
+        resolve({ blob, duration, width: this.portrait ? 720 : null, height: this.portrait ? 1280 : null, portrait: this.portrait });
       };
     });
     this.recorder.start(1000);
     this.timer = setInterval(() => { const seconds = (performance.now() - this.startedAt) / 1000; tick(seconds); if (seconds >= maxSeconds) this.stop(); }, 200);
     return this.done;
   }
-  stop() { if (this.recorder?.state === 'recording') this.recorder.stop(); return this.done; }
-  close() { this.stop(); this.stream?.getTracks().forEach(t => t.stop()); this.stream = null; }
+
+  stop() {
+    if (this.recorder?.state === 'recording') this.recorder.stop();
+    return this.done;
+  }
+
+  close() {
+    this.stop();
+    try {
+      if (this.sourceVideo && 'cancelVideoFrameCallback' in this.sourceVideo && typeof this.frameHandle === 'number') this.sourceVideo.cancelVideoFrameCallback(this.frameHandle);
+      else if (typeof this.frameHandle === 'number') cancelAnimationFrame(this.frameHandle);
+    } catch {}
+    this.frameHandle = null;
+    try { this.sourceVideo?.pause(); } catch {}
+    if (this.sourceVideo) this.sourceVideo.srcObject = null;
+    this.canvasStream?.getTracks().forEach(t => t.stop());
+    this.stream?.getTracks().forEach(t => t.stop());
+    this.rawStream?.getTracks().forEach(t => t.stop());
+    this.stream = null; this.rawStream = null; this.canvasStream = null; this.sourceVideo = null; this.canvas = null;
+  }
 }
