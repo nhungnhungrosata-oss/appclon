@@ -115,8 +115,8 @@ test('clone final render cannot require removed Sync API and core assets bypass 
   assert.doesNotMatch(frontend,/Tạo video hoàn chỉnh/);
   assert.doesNotMatch(renderBlock,/ensureProvider\(['"]sync['"]\)|clone-submit-video|clone-video-status|SYNC_API_KEY/);
   assert.match(renderBlock,/replaceVideoAudio/);
-  assert.match(html,/app\.js\?v=20260920-2158/);
-  assert.match(html,/styles\.css\?v=20260920-2158/);
+  assert.match(html,/app\.js\?v=[A-Za-z0-9._-]+/);
+  assert.match(html,/styles\.css\?v=[A-Za-z0-9._-]+/);
   for(const path of ['/','/index.html','/app.js','/media.js','/styles.css']){
     const rule=config.headers.find(x=>x.source===path);
     assert.ok(rule,'missing no-store rule for '+path);
@@ -138,4 +138,20 @@ test('clone timing uses active speech, adaptive speed and tight per-segment tole
   assert.doesNotMatch(frontend,/ratio>1\.04\|\|ratio<0\.82/);
   assert.match(media,/export async function trimSpeechAudio/);
   assert.match(media,/rms >= threshold/);
+});
+
+
+test('9:16 recorder creates a real 720x1280 canvas stream instead of trusting camera ideal constraints',async()=>{
+  const frontend=await readFile('public/app.js','utf8');
+  const media=await readFile('public/media.js','utf8');
+  const css=await readFile('public/styles.css','utf8');
+  assert.match(media,/canvas\.width = 720/);
+  assert.match(media,/canvas\.height = 1280/);
+  assert.match(media,/const targetRatio = 9 \/ 16/);
+  assert.match(media,/canvas\.captureStream\(30\)/);
+  assert.match(media,/new MediaStream\(\[videoTrack, \.\.\.audioTracks\]\)/);
+  assert.match(media,/videoBitsPerSecond = this\.portrait \? 2600000 : 1500000/);
+  assert.match(frontend,/Camera đang xuất khung dọc thật 720×1280 \(9:16\)/);
+  assert.match(frontend,/applyCameraRatioUI/);
+  assert.match(css,/\.camera-box\.portrait\{[^}]*aspect-ratio:9\/16/);
 });
