@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { vbeeSubmit, vbeeStatus } from '../lib/providers.mjs';
+import { vbeeSubmit, vbeeStatus, vbeeAudio } from '../lib/providers.mjs';
 
 process.env.APP_PASSWORD='test-only-password-123456';
 process.env.SESSION_SECRET='test-only-secret-DO-NOT-USE-IN-PRODUCTION-123456';
@@ -48,6 +48,11 @@ test('Vbee flow mirrors working app: submit -> requestId -> COMPLETED -> audioLi
       assert.equal(options.headers['App-Id'],'app-test-id');
       return json({status:'COMPLETED',audioLink:'https://cdn.example.test/audio.mp3'});
     }
+    if(href==='https://cdn.example.test/audio.mp3'){
+      assert.equal(options.method,'GET');
+      assert.equal(options.redirect,'follow');
+      return new Response(new Uint8Array([0x49,0x44,0x33,1,2,3,4,5]),{status:200,headers:{'content-type':'audio/mpeg'}});
+    }
     throw new Error('Unexpected URL '+href);
   };
 
@@ -59,5 +64,9 @@ test('Vbee flow mirrors working app: submit -> requestId -> COMPLETED -> audioLi
   assert.equal(state.failed,false);
   assert.equal(state.status,'COMPLETED');
   assert.equal(state.audioLink,'https://cdn.example.test/audio.mp3');
+  const audio=await vbeeAudio('user01',submitted.token);
+  assert.equal(audio.contentType,'audio/mpeg');
+  assert.equal(audio.data.length,8);
+  assert.equal(calls.some(x=>x.href==='https://cdn.example.test/audio.mp3'),true);
   assert.equal(calls.some(x=>x.href==='https://api.vbee.vn/v1/tts'),true);
 });

@@ -1,6 +1,6 @@
 import { authenticate, users, verifyPassword, safeEqual, sessionCookie, checkOrigin, readBody, readJson, text, json, publicError, sha, fail, secret } from '../lib/core.mjs';
 import { hasRedis, limit, get, setPersistent } from '../lib/store.mjs';
-import { models, generateText, vbeeSubmit, vbeeStatus, assignedVoice, analyze, googleStart, googleChunk, googleFile } from '../lib/providers.mjs';
+import { models, generateText, vbeeSubmit, vbeeStatus, vbeeAudio, assignedVoice, analyze, googleStart, googleChunk, googleFile } from '../lib/providers.mjs';
 
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
@@ -55,6 +55,40 @@ export default async function handler(req, res) {
       limiter: hasRedis() ? 'redis' : 'memory',
       shared: Object.keys(users()).length > 1
     });
+
+    if (action === 'tts-audio' && req.method === 'GET') {
+      const user = session.username;
+      await limit(`audio:${sha(user)}`, 120, 60);
+      const token = url.searchParams.get('token') || '';
+      const { data, contentType } = await vbeeAudio(user, token);
+      const total = data.length;
+      const rawRange = req.headers.range;
+      let start = 0, end = total - 1, partial = false;
+
+      if (typeof rawRange === 'string') {
+        const match = /^bytes=(\d+)-(\d*)$/.exec(rawRange.trim());
+        if (match) {
+          start = Number(match[1]);
+          end = match[2] ? Number(match[2]) : total - 1;
+          if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start || start >= total) {
+            res.statusCode = 416;
+            res.setHeader('Content-Range', `bytes */${total}`);
+            return res.end();
+          }
+          end = Math.min(end, total - 1);
+          partial = true;
+        }
+      }
+
+      const body = partial ? data.subarray(start, end + 1) : data;
+      res.statusCode = partial ? 206 : 200;
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Length', String(body.length));
+      res.setHeader('Accept-Ranges', 'bytes');
+      res.setHeader('Content-Disposition', 'inline; filename="ibee-audio.mp3"');
+      if (partial) res.setHeader('Content-Range', `bytes ${start}-${end}/${total}`);
+      return res.end(body);
+    }
 
     if (req.method !== 'POST') fail(405, 'Method not allowed.');
     const user = session.username;

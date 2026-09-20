@@ -54,15 +54,15 @@ test('Vbee integration matches current batch API contract',async()=>{
 });
 
 
-test('Vbee completed audio uses provider audioLink directly and no server MP3 proxy remains',async()=>{
+test('Ibee player uses authenticated same-origin audio proxy with range support',async()=>{
   const frontend=await readFile('public/app.js','utf8');
   const api=await readFile('api/index.js','utf8');
   const providers=await readFile('lib/providers.mjs','utf8');
-  const vercel=await readFile('vercel.json','utf8');
-  assert.match(frontend,/state\.audioLink/);
-  assert.match(frontend,/remoteUrl:state\.audioLink/);
-  assert.doesNotMatch(frontend,/api\('tts-download'/);
-  assert.doesNotMatch(api,/tts-download/);
-  assert.doesNotMatch(providers,/vbeeDownload/);
-  assert.match(vercel,/media-src 'self' blob: https:/);
+  assert.match(frontend,/action=tts-audio&token=/);
+  assert.match(frontend,/rec\.playUrl\|\|rec\.remoteUrl/);
+  assert.match(api,/action === 'tts-audio'/);
+  assert.match(api,/Accept-Ranges/);
+  assert.match(api,/Content-Range/);
+  assert.match(providers,/export async function vbeeAudio/);
+  assert.match(providers,/redirect: 'follow'/);
 });
