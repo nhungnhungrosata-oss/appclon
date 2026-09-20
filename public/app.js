@@ -1,4 +1,4 @@
-import { initDB, put, all, remove, clear, blobUrl, releaseUrls, download, pause, cleanMime, durationOf, sampleFrames, toBase64, extractSpeechChunks, composeAlignedSpeech, mediaDuration, replaceVideoAudio, Recorder } from './media.js';
+import { initDB, put, all, remove, clear, blobUrl, releaseUrls, download, pause, cleanMime, durationOf, sampleFrames, toBase64, extractSpeechChunks, composeAlignedSpeech, mediaDuration, replaceVideoAudio, Recorder } from './media.js?v=20260920-2158';
 
 const $ = (s, root = document) => root.querySelector(s);
 const $$ = (s, root = document) => [...root.querySelectorAll(s)];
@@ -102,7 +102,7 @@ function cloneVideoMarkup(){
  <section class="panel" id="clone-transcript-panel" ${S.cloneJob?.segments?.length?'':'hidden'}><div class="panel-head"><div><h2>3. Kiểm tra lời thoại</h2><p class="tiny muted status-line">Sửa sai chính tả nếu cần. Mốc thời gian được khóa để giữ timeline video.</p></div><span class="pill green" id="clone-segment-count">${S.cloneJob?.segments?.length||0} đoạn</span></div>
  <div id="clone-transcript-list" class="stack"></div><div class="row between"><span class="tiny muted">Không đổi nội dung nếu mục tiêu là giữ nguyên lời nguồn.</span><button id="clone-synthesize" class="purple">Tạo giọng theo timeline</button></div></section>
  <section class="panel" id="clone-render-panel" ${S.cloneJob?.alignedAudio?'':'hidden'}><div class="panel-head"><div><h2>4. Ghép giọng vào video</h2><p class="tiny muted status-line">Không chỉnh khuôn mặt hoặc khẩu hình. Video gốc được phát lại và thay track tiếng bằng audio Ibee đã căn timeline.</p></div><span class="pill">Local</span></div>
- <audio id="clone-audio-preview" controls></audio><div class="notice">Bước xuất video chạy theo thời gian thực trên máy. Ví dụ video 60 giây sẽ mất khoảng 60 giây để ghép. Trình duyệt có thể mã hóa lại file nên dung lượng/codec có thể thay đổi, nhưng nội dung hình ảnh không bị AI chỉnh sửa.</div><div class="divider"></div><button id="clone-render-video" class="primary full">Ghép giọng vào video</button><p id="clone-render-status" class="status-line"></p></section>
+ <audio id="clone-audio-preview" controls></audio><div class="notice">Bước xuất video chạy theo thời gian thực trên máy. Ví dụ video 60 giây sẽ mất khoảng 60 giây để ghép. Trình duyệt có thể mã hóa lại file nên dung lượng/codec có thể thay đổi, nhưng nội dung hình ảnh không bị AI chỉnh sửa.</div><div class="divider"></div><button id="clone-render-video" class="primary full">Ghép video hoàn chỉnh</button><p id="clone-render-status" class="status-line"></p></section>
  <section class="panel result" id="clone-result-panel" ${S.cloneJob?.resultVideo?.blob?'':'hidden'}><div class="panel-head"><h2>Video kết quả</h2><button id="clone-download-result" class="small">${icon('down')} Tải video</button></div><video id="clone-result-video" controls playsinline></video></section>`;
 }
 function settingsMarkup(){
