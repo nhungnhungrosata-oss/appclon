@@ -1,6 +1,6 @@
 import { authenticate, users, verifyPassword, safeEqual, sessionCookie, checkOrigin, readBody, readJson, text, json, publicError, sha, fail, secret } from '../lib/core.mjs';
 import { hasRedis, limit, get, setPersistent } from '../lib/store.mjs';
-import { models, generateText, vbeeSubmit, vbeeStatus, vbeeDownload, assignedVoice, analyze, googleStart, googleChunk, googleFile } from '../lib/providers.mjs';
+import { models, generateText, vbeeSubmit, vbeeStatus, assignedVoice, analyze, googleStart, googleChunk, googleFile } from '../lib/providers.mjs';
 
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
@@ -77,20 +77,6 @@ export default async function handler(req, res) {
       return json(res, await vbeeSubmit(user, b, callbackBase));
     }
     if (action === 'tts-status') return json(res, await vbeeStatus(user, b.token));
-    if (action === 'tts-download') {
-      const upstream = await vbeeDownload(user, b.token);
-      const chunks = []; let bytes = 0;
-      for await (const chunk of upstream.body) {
-        bytes += chunk.length;
-        if (bytes > 8_000_000) fail(413, 'Audio Vbee quá lớn.');
-        chunks.push(Buffer.from(chunk));
-      }
-      if (!bytes) fail(502, 'Vbee không trả audio.');
-      res.statusCode = 200;
-      res.setHeader('Content-Type', 'audio/mpeg');
-      res.setHeader('Content-Disposition', 'attachment; filename="cliplab-vbee.mp3"');
-      return res.end(Buffer.concat(chunks));
-    }
 
     if (action === 'admin-state') {
       if (session.role !== 'admin') fail(403, 'Chỉ admin được quản lý.');

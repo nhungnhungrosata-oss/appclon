@@ -51,3 +51,17 @@ test('Vbee integration matches current batch API contract',async()=>{
   ]) assert.ok(source.includes(literal), 'missing Vbee field: '+literal);
   for(const legacy of ['input_text','voice_code','callback_url','speed_rate','app_id:']) assert.ok(!source.includes(legacy),'legacy Vbee field remains: '+legacy);
 });
+
+
+test('Vbee completed audio uses provider audioLink directly and no server MP3 proxy remains',async()=>{
+  const frontend=await readFile('public/app.js','utf8');
+  const api=await readFile('api/index.js','utf8');
+  const providers=await readFile('lib/providers.mjs','utf8');
+  const vercel=await readFile('vercel.json','utf8');
+  assert.match(frontend,/state\.audioLink/);
+  assert.match(frontend,/remoteUrl:state\.audioLink/);
+  assert.doesNotMatch(frontend,/api\('tts-download'/);
+  assert.doesNotMatch(api,/tts-download/);
+  assert.doesNotMatch(providers,/vbeeDownload/);
+  assert.match(vercel,/media-src 'self' blob: https:/);
+});
