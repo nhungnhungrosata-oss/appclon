@@ -124,7 +124,7 @@ function navigate(page){
  for(const p of Object.keys(pages))$('#page-'+p).hidden=p!==page;
  $$('.nav [data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===page));
  $('#breadcrumb').textContent=pages[page];window.scrollTo({top:0});
- if(page==='settings')renderSettings();
+ if(page==='settings')renderSettings();if(page==='clone')renderCloneState();
 }
 function videoAsset(){return S.assets.find(a=>a.id===S.selectedVideo&&a.kind==='video')}
 function requireConsent(sel){if(!$(sel).checked)throw new Error('Hãy xác nhận quyền sử dụng dữ liệu.')}
@@ -333,7 +333,7 @@ async function renderCloneVideo(){
 }
 function renderSettings(){
  const cfg=S.session;
- const defs=[['vbee','Ibee AIVoice','Cấu hình API phía máy chủ'],['google','Google Gemini','GOOGLE_API_KEY'],['deepseek','DeepSeek','DEEPSEEK_API_KEY'],['openai','OpenAI','OPENAI_API_KEY']];
+ const defs=[['vbee','Ibee AIVoice','Cấu hình API phía máy chủ'],['sync','Lip-sync Video','SYNC_API_KEY'],['google','Google Gemini','GOOGLE_API_KEY'],['deepseek','DeepSeek','DEEPSEEK_API_KEY'],['openai','OpenAI','OPENAI_API_KEY']];
  $('#provider-list').innerHTML=defs.map(([id,n,e])=>`<div class="provider"><h3>${n}</h3><span class="pill ${cfg.providers[id]?'green':''}">${cfg.providers[id]?'Đã cấu hình':'Chưa cấu hình'}</span><code>${e}</code></div>`).join('');
  $('#limiter-notice').textContent=cfg.limiter==='redis'?'Redis đã kết nối: có thể lưu phân quyền giọng cho nhiều tài khoản.':'Chưa có Upstash Redis: tạo nội dung đa tài khoản và gán giọng sẽ bị chặn để tránh vượt hạn mức.';
  $('#limiter-notice').className=`notice ${cfg.limiter==='redis'?'success':'warning'}`;
@@ -349,6 +349,12 @@ function renderAdmin(){
  $('#admin-users').innerHTML=(S.adminState.users||[]).map(u=>`<div class="voice-card"><div class="row between"><strong>${esc(u.username)}</strong><span class="pill">${esc(u.role)}</span></div><div class="field"><select data-assign-user="${esc(u.username)}"><option value="">-- Chưa cấp giọng --</option>${voices.map(v=>`<option value="${esc(v.code)}" ${u.voiceCode===v.code?'selected':''}>${esc(v.label)}</option>`).join('')}</select></div></div>`).join('');
 }
 function closeCamera(){S.camera.close();const p=$('#camera-video');if(!p)return;p.srcObject=null;$('#open-camera').disabled=false;$('#start-record').disabled=true;$('#close-camera').hidden=true;if(!videoAsset())$('#camera-empty').hidden=false}
+function bindCloneEvents(){
+ const transcribe=$('#clone-transcribe');if(transcribe)transcribe.onclick=()=>busy(transcribe,transcribeCloneVideo,'#clone-status');
+ const synth=$('#clone-synthesize');if(synth)synth.onclick=()=>busy(synth,synthesizeCloneTimeline,'#clone-status');
+ const render=$('#clone-render-video');if(render)render.onclick=()=>busy(render,renderCloneVideo,'#clone-render-status');
+ const source=$('#clone-source-video');if(source)source.onchange=async e=>{const id=e.target.value;if(!S.cloneJob||S.cloneJob.sourceVideoId!==id){S.cloneJob=newCloneJob(id);await saveCloneJob();const page=$('#page-clone');page.innerHTML=cloneVideoMarkup();bindCloneEvents();renderCloneState()}};
+}
 function bindEvents(){
  $('#app').onclick=e=>{
   const b=e.target.closest('button');if(!b)return;
@@ -362,6 +368,8 @@ function bindEvents(){
  $('#start-record').onclick=()=>busy($('#start-record'),async()=>{$('#stop-record').hidden=false;$('#record-time').hidden=false;try{const rr=await S.camera.start(179,t=>$('#record-time').textContent='REC '+clock(t));const ext=rr.blob.type.includes('mp4')?'mp4':'webm';await ingestVideo(new File([rr.blob],`tu-lieu-${Date.now()}.${ext}`,{type:rr.blob.type}),rr.duration)}finally{$('#stop-record').hidden=true;$('#record-time').hidden=true;closeCamera()}});
  $('#stop-record').onclick=()=>S.camera.stop();$('#close-camera').onclick=()=>{closeCamera();selectVideo(S.selectedVideo)};
  $('#choose-video').onclick=()=>$('#video-file').click();$('#video-file').onchange=e=>{const f=e.target.files[0];e.target.value='';if(f)busy($('#choose-video'),()=>ingestVideo(f),'#camera-status')};
+ $('#clone-source-video').onchange=async e=>{const id=e.target.value;if(!S.cloneJob)S.cloneJob=newCloneJob(id);if(S.cloneJob.sourceVideoId!==id){S.cloneJob=newCloneJob(id);await saveCloneJob();const page=$('#page-clone');page.innerHTML=cloneVideoMarkup();bindCloneEvents();renderCloneState()}};
+ bindCloneEvents();
  $$('input[name="analysis-mode"]').forEach(x=>x.onchange=()=>$('#frame-field').hidden=x.value!=='frames');
  $('#analyze-btn').onclick=()=>busy($('#analyze-btn'),runAnalysis,'#analysis-status');
  $('#analysis-to-script').onclick=()=>{$('#script-editor').value=$('#analysis-script').value;saveDraft();updateCounts();navigate('script')};
@@ -378,11 +386,11 @@ function bindEvents(){
  $('#logout').onclick=()=>busy($('#logout'),async()=>{closeCamera();await api('logout',{});releaseUrls();S.session=null;$('#app').innerHTML='';loginScreen()});
 }
 async function boot(){
- S.session=await api('session');await initDB(S.session.username);S.assets=await all('assets');S.selectedVideo=S.assets.find(a=>a.kind==='video')?.id||null;S.page='media';
+ S.session=await api('session');await initDB(S.session.username);S.assets=await all('assets');S.selectedVideo=S.assets.find(a=>a.kind==='video')?.id||null;const jobs=await all('jobs');S.cloneJob=jobs.find(j=>j.type==='video-voice-clone')||newCloneJob(S.selectedVideo||'');S.page='media';
  renderApp();bindEvents();
  try{const d=JSON.parse(localStorage.getItem(draftKey())||'{}');$('#script-prompt').value=d.prompt||'';$('#script-editor').value=d.script||'';$('#voice-text').value=d.voice||'';$('#analysis-brief').value=d.brief||''}catch{}
  if(!S.session.providers.deepseek&&S.session.providers.openai)$('#text-provider').value='openai';
- renderVideoLibrary();selectVideo(S.selectedVideo);if(S.session.role==='admin')renderSettings();updateCounts();
+ renderVideoLibrary();selectVideo(S.selectedVideo);renderCloneState();if(S.session.role==='admin')renderSettings();updateCounts();
  const latest=S.assets.filter(a=>a.kind==='audio').sort((a,b)=>b.createdAt-a.createdAt)[0];if(latest)showAudio(latest);
 }
 loginScreen();
