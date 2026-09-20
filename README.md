@@ -89,3 +89,8 @@ Luồng:
 7. Không gửi video sang dịch vụ lip-sync bên thứ ba; không cần `SYNC_API_KEY` và không phát sinh phí lip-sync.
 
 Giới hạn chất lượng: phiên bản đầu tối ưu cho một người nói chính, tiếng Việt, video tối đa 3 phút, không hát và không hội thoại chồng tiếng. Hình ảnh/khẩu hình video gốc không bị AI chỉnh sửa; độ khớp miệng phụ thuộc việc audio Ibee bám sát timeline lời nguồn. Ibee public API là TTS nên không thể sao chép tuyệt đối đường cong cao độ/biểu cảm của giọng nguồn như một hệ speech-to-speech. Transcript phải được người dùng duyệt trước khi render nếu yêu cầu giữ nguyên 100% nội dung. Bước ghép video chạy theo thời gian thực trên trình duyệt và có thể mã hóa lại file, nên codec/dung lượng có thể thay đổi.
+
+
+## Chẩn đoán OpenAI API key
+
+Admin có thể vào **Thiết lập** để xem fingerprint an toàn của key OpenAI mà production đang đọc (chỉ prefix loại key + 4 ký tự cuối và độ dài, không trả secret đầy đủ). App tự bỏ khoảng trắng hoặc một cặp dấu nháy vô tình dính khi copy Environment Variable. Sau khi đổi `OPENAI_API_KEY` trên Vercel phải Redeploy để deployment mới nhận giá trị.
