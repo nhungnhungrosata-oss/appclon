@@ -6,7 +6,7 @@ import handler from '../api/index.js';
 
 test('static deployment assets exist and local imports resolve',async()=>{
   const html=await readFile('public/index.html','utf8');
-  for(const m of html.matchAll(/(?:src|href)=["']\/([^"']+)["']/g)) await access(resolve('public',m[1]));
+  for(const m of html.matchAll(/(?:src|href)=["']\/([^"']+)["']/g)) await access(resolve('public',m[1].split('?')[0]));
   for(const file of ['public/app.js','public/media.js']){
     const source=await readFile(file,'utf8'); assert.ok(source.length>100);
     for(const m of source.matchAll(/from\s+['"](\.\.?\/[^'"]+)['"]/g)) await access(resolve(dirname(file),m[1]));
@@ -103,4 +103,23 @@ test('admin UI shows only a masked OpenAI key fingerprint',async()=>{
   assert.match(source,/OpenAI key production đang đọc/);
   assert.match(source,/oa\.hint/);
   assert.doesNotMatch(source,/OPENAI_API_KEY\}\}/);
+});
+
+
+test('clone final render cannot require removed Sync API and core assets bypass stale cache',async()=>{
+  const frontend=await readFile('public/app.js','utf8');
+  const html=await readFile('public/index.html','utf8');
+  const config=JSON.parse(await readFile('vercel.json','utf8'));
+  const renderBlock=frontend.slice(frontend.indexOf('async function renderCloneVideo'),frontend.indexOf('function renderSettings'));
+  assert.match(frontend,/Ghép video hoàn chỉnh/);
+  assert.doesNotMatch(frontend,/Tạo video hoàn chỉnh/);
+  assert.doesNotMatch(renderBlock,/ensureProvider\(['"]sync['"]\)|clone-submit-video|clone-video-status|SYNC_API_KEY/);
+  assert.match(renderBlock,/replaceVideoAudio/);
+  assert.match(html,/app\.js\?v=20260920-2158/);
+  assert.match(html,/styles\.css\?v=20260920-2158/);
+  for(const path of ['/','/index.html','/app.js','/media.js','/styles.css']){
+    const rule=config.headers.find(x=>x.source===path);
+    assert.ok(rule,'missing no-store rule for '+path);
+    assert.ok(rule.headers.some(h=>h.key==='Cache-Control'&&/no-store/.test(h.value)));
+  }
 });
