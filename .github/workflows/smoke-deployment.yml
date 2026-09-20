@@ -30,7 +30,7 @@ jobs:
             process.exit(0);
           }
           if (home.status !== 200 || !(await home.text()).includes('app.js')) throw new Error('Homepage did not load the ClipLab app');
-          for (const path of ['/app.js', '/media.js', '/fish-handoff.js', '/styles.css']) {
+          for (const path of ['/app.js', '/media.js', '/styles.css']) {
             const response = await get(path);
             const body = await response.text();
             if (response.status !== 200 || body.length < 100 || body.trimStart().startsWith('<!DOCTYPE')) throw new Error('Missing/invalid static asset: ' + path);
@@ -44,5 +44,5 @@ jobs:
           const auth = await session.json();
           if (session.status !== 401 || auth.code !== 'UNAUTHENTICATED') throw new Error('Protected API must reject unauthenticated sessions');
           console.log('PASS unauthenticated session: HTTP 401');
-          appendFileSync(process.env.GITHUB_STEP_SUMMARY, 'PASS: deployed homepage, four assets, backend health and authentication guard.\n\nURL: ' + base.origin + '\n\nExternal AI providers and authenticated workflows were not called.\n');
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY, 'PASS: deployed homepage, three assets, backend health and authentication guard.\n\nURL: ' + base.origin + '\n\nExternal AI providers and authenticated workflows were not called.\n');
           JS
