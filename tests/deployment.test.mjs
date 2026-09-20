@@ -28,3 +28,13 @@ test('admin voice assignment captures selected value before disabling the select
   assert.match(source, /const username=el\.dataset\.assignUser,voiceCode=el\.value;el\.disabled=true/);
   assert.doesNotMatch(source, /busy\(el,async\(\)=>\{await api\('admin-assign-voice'/);
 });
+
+
+test('Vbee requests follow redirects and surface provider-specific errors', async () => {
+  const source = await readFile('lib/providers.mjs', 'utf8');
+  assert.match(source, /redirect: 'follow'/);
+  assert.match(source, /VBEE_NETWORK_ERROR/);
+  assert.match(source, /VBEE_BAD_RESPONSE/);
+  assert.match(source, /VBEE_API_ERROR/);
+  assert.doesNotMatch(source, /response_type: 'indirect'/);
+});
