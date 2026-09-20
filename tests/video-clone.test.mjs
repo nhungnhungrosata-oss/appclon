@@ -53,7 +53,7 @@ test('video clone provider flow validates transcription and Sync contracts',asyn
    return json({id:'generation_123',status:'PENDING'},201);
   }
   if(href==='https://api.sync.so/v2/generate/generation_123')return json({id:'generation_123',status:'COMPLETED',outputUrl:'https://cdn.sync.so/result.mp4'});
-  if(href==='https://api.sync.so/v2/assets/asset_video_123'&&options.method==='DELETE')return new Response('',{status:204});
+  if(href==='https://api.sync.so/v2/assets/asset_video_123'&&options.method==='DELETE')return new Response(null,{status:204});
   throw new Error('Unexpected URL '+href);
  };
 
