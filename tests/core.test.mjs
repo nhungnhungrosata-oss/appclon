@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { hashPassword, verifyPassword, users, sessionCookie, authenticate, checkOrigin } from '../lib/core.mjs';
+import { hashPassword, verifyPassword, users, sessionCookie, authenticate, checkOrigin, key, keyHint } from '../lib/core.mjs';
 import { seedUsers } from '../lib/seed-users.mjs';
 import { quota } from '../lib/store.mjs';
 
@@ -31,4 +31,13 @@ test('same-origin protection rejects foreign origin',()=>{
 });
 test('multi-user paid actions fail closed without Redis',async()=>{
   await assert.rejects(()=>quota('user01','tts'),{status:503});
+});
+
+
+test('API key normalization removes accidental whitespace and wrapping quotes',()=>{
+  const before=process.env.OPENAI_API_KEY;
+  process.env.OPENAI_API_KEY='  "sk-proj-example-9CgA"  ';
+  assert.equal(key('OPENAI_API_KEY'),'sk-proj-example-9CgA');
+  assert.deepEqual(keyHint('OPENAI_API_KEY'),{configured:true,hint:'sk-proj-…9CgA',normalized:true,length:20});
+  if(before===undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY=before;
 });
