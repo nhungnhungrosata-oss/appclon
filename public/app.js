@@ -172,6 +172,165 @@ async function runAnalysis(){
  }finally{$('#analysis-progress').hidden=true;if(fileToken){try{await api('google-delete',{fileToken})}catch{}}}
 }
 function showAudio(rec){S.latestAudio=rec;$('#audio-output').hidden=false;const player=$('#tts-preview');player.pause();player.removeAttribute('src');player.src=rec.playUrl||rec.remoteUrl||blobUrl(rec);player.load();$('#audio-duration').textContent=rec.playUrl?'Sẵn sàng nghe':rec.remoteUrl?'Link Ibee tạm thời':clock(rec.duration);player.onloadedmetadata=()=>{if(Number.isFinite(player.duration)&&player.duration>0)$('#audio-duration').textContent=clock(player.duration)};player.onerror=()=>{$('#audio-duration').textContent='Không tải được audio';$('#voice-status').textContent='Không phát được audio trực tiếp. Hãy thử lại hoặc tải MP3.'}}
+
+function cloneSourceVideo(){
+ const id=S.cloneJob?.sourceVideoId||$('#clone-source-video')?.value||S.selectedVideo;
+ return S.assets.find(a=>a.id===id&&a.kind==='video')||null;
+}
+function newCloneJob(sourceVideoId=''){
+ return {id:'video-voice-clone-current',type:'video-voice-clone',sourceVideoId,stage:'Chưa bắt đầu',progress:0,segments:[],alignedAudio:null,generationId:null,resultUrl:null,assetIds:[],createdAt:Date.now(),updatedAt:Date.now()};
+}
+async function saveCloneJob(){
+ if(!S.cloneJob)return;
+ S.cloneJob.updatedAt=Date.now();
+ await put('jobs',S.cloneJob);
+}
+function setCloneProgress(stage,progress,status=''){
+ if(!S.cloneJob)S.cloneJob=newCloneJob();
+ S.cloneJob.stage=stage;S.cloneJob.progress=Math.max(0,Math.min(100,Math.round(progress)));
+ if($('#clone-stage'))$('#clone-stage').textContent=stage;
+ if($('#clone-progress'))$('#clone-progress').style.width=S.cloneJob.progress+'%';
+ if(status&&$('#clone-status'))$('#clone-status').textContent=status;
+}
+function normalizeCloneSegments(rows,duration){
+ const clean=rows.filter(x=>x&&typeof x.text==='string'&&x.text.trim()&&Number.isFinite(x.start)&&Number.isFinite(x.end)&&x.end>x.start)
+  .map((x,i)=>({id:x.id||String(i),start:Math.max(0,Number(x.start)),end:Math.min(duration,Number(x.end)),text:x.text.trim()}))
+  .filter(x=>x.end>x.start).sort((a,b)=>a.start-b.start);
+ const merged=[];
+ for(const row of clean){
+  const prev=merged.at(-1);
+  if(prev&&row.start-prev.end<0.28&&row.end-prev.start<=9){prev.end=row.end;prev.text=(prev.text+' '+row.text).trim()}
+  else merged.push({...row});
+ }
+ while(merged.length>24){
+  const next=[];for(let i=0;i<merged.length;i+=2){const a=merged[i],b=merged[i+1];next.push(b?{id:a.id,start:a.start,end:b.end,text:(a.text+' '+b.text).trim()}:a)}merged.splice(0,merged.length,...next);
+ }
+ return merged.map((x,i)=>({...x,id:'seg-'+i,start:Number(x.start.toFixed(3)),end:Number(x.end.toFixed(3))}));
+}
+function renderCloneState(){
+ const job=S.cloneJob;
+ if(!$('#page-clone'))return;
+ if($('#clone-stage'))$('#clone-stage').textContent=job?.stage||'Chưa bắt đầu';
+ if($('#clone-progress'))$('#clone-progress').style.width=Number(job?.progress||0)+'%';
+ const list=$('#clone-transcript-list');
+ if(list){
+  const segs=job?.segments||[];
+  $('#clone-transcript-panel').hidden=!segs.length;
+  $('#clone-segment-count').textContent=segs.length+' đoạn';
+  list.innerHTML=segs.map((s,i)=>`<div class="voice-card clone-segment"><div class="row between"><strong>Đoạn ${i+1}</strong><span class="pill">${clock(s.start)} → ${clock(s.end)} · ${Math.max(.1,s.end-s.start).toFixed(1)}s</span></div><textarea data-clone-segment="${i}" rows="2" maxlength="1000">${esc(s.text)}</textarea></div>`).join('');
+ }
+ const panel=$('#clone-render-panel');
+ if(panel){
+  panel.hidden=!job?.alignedAudio?.blob;
+  const player=$('#clone-audio-preview');
+  if(job?.alignedAudio?.blob&&player){player.src=blobUrl(job.alignedAudio);player.load()}
+ }
+ const result=$('#clone-result-panel');
+ if(result){
+  result.hidden=!job?.resultUrl;
+  if(job?.resultUrl){$('#clone-result-video').src=job.resultUrl;$('#clone-download-result').href=job.resultUrl}
+ }
+}
+async function transcribeCloneVideo(){
+ ensureProvider('openai');requireConsent('#clone-consent');
+ const source=cloneSourceVideo();if(!source)throw new Error('Hãy chọn video nguồn.');
+ if(!S.session.assignedVoice)throw new Error('Admin chưa cấp giọng cho tài khoản này.');
+ S.cloneJob=newCloneJob(source.id);setCloneProgress('Tách lời thoại',5,'Đang tách audio khỏi video...');
+ const extracted=await extractSpeechChunks(source.blob,40,(n,total)=>setCloneProgress('Tách lời thoại',5+Math.round(n/total*10)));
+ const rows=[];
+ for(let i=0;i<extracted.chunks.length;i++){
+  const chunk=extracted.chunks[i];
+  setCloneProgress('Nhận dạng lời thoại',15+Math.round(i/extracted.chunks.length*35),`Đang nhận dạng đoạn ${i+1}/${extracted.chunks.length}...`);
+  const data=await api('clone-transcribe',{audioBase64:await toBase64(chunk.blob),offset:chunk.offset,duration:chunk.duration,consent:true});
+  rows.push(...(data.segments||[]));
+ }
+ const segments=normalizeCloneSegments(rows,source.duration);
+ if(!segments.length)throw new Error('Không nhận thấy lời thoại tiếng Việt rõ ràng trong video.');
+ S.cloneJob.segments=segments;S.cloneJob.sourceDuration=source.duration;S.cloneJob.alignedAudio=null;S.cloneJob.resultUrl=null;S.cloneJob.assetIds=[];
+ setCloneProgress('Chờ kiểm tra lời thoại',50,`Đã nhận dạng ${segments.length} đoạn. Hãy kiểm tra nội dung trước khi tạo giọng.`);
+ await saveCloneJob();renderCloneState();
+}
+async function waitIbee(token,label){
+ let state=null;
+ for(let i=0;i<100;i++){
+  await pause(i<10?1200:2000);
+  state=await api('tts-status',{token});
+  if(state.failed)throw new Error(state.error||'Ibee tạo audio thất bại.');
+  if(state.ready)return state;
+  if($('#clone-status'))$('#clone-status').textContent=`${label}: Ibee đang xử lý...`;
+ }
+ throw new Error('Ibee xử lý quá lâu. Hãy thử lại tác vụ sau.');
+}
+async function fetchIbeeAudio(token){
+ const r=await fetch(`/api/index?action=tts-audio&token=${encodeURIComponent(token)}`,{credentials:'same-origin',signal:AbortSignal.timeout(65000)});
+ if(!r.ok){let d={};try{d=await r.json()}catch{}throw new Error(d.error||'Không tải được audio Ibee.')}
+ return r.blob();
+}
+async function synthesizeCloneSegment(seg,index,total){
+ const target=Math.max(.45,seg.end-seg.start);let speed=1,last=null;
+ for(let attempt=0;attempt<2;attempt++){
+  setCloneProgress('Tạo giọng Ibee',52+Math.round((index+(attempt*.35))/total*30),`Đoạn ${index+1}/${total}: tạo giọng ${speed.toFixed(2)}x...`);
+  const sub=await api('tts-submit',{text:seg.text,speed,consent:true});
+  await waitIbee(sub.token,`Đoạn ${index+1}/${total}`);
+  const blob=await fetchIbeeAudio(sub.token);const duration=await mediaDuration(blob,'audio');
+  last={blob,duration,speed};
+  const ratio=duration/target;
+  if(attempt===0&&(ratio>1.04||ratio<0.82)){
+   const next=Math.max(.25,Math.min(1.9,speed*ratio));
+   if(Math.abs(next-speed)>.04){speed=next;continue}
+  }
+  break;
+ }
+ if(last.duration>target*1.08)throw new Error(`Đoạn ${index+1} dài ${last.duration.toFixed(1)}s nhưng khung chỉ ${target.toFixed(1)}s. Hãy kiểm tra transcript hoặc video nguồn.`);
+ return {start:seg.start,end:seg.end,text:seg.text,blob:last.blob,duration:last.duration,speed:last.speed};
+}
+async function synthesizeCloneTimeline(){
+ ensureProvider('vbee');requireConsent('#clone-consent');
+ if(!S.cloneJob?.segments?.length)throw new Error('Hãy phân tích lời thoại trước.');
+ const source=cloneSourceVideo();if(!source)throw new Error('Video nguồn không còn trong thư viện.');
+ $$('#clone-transcript-list [data-clone-segment]').forEach(el=>{const i=Number(el.dataset.cloneSegment);if(S.cloneJob.segments[i])S.cloneJob.segments[i].text=el.value.trim()});
+ if(S.cloneJob.segments.some(s=>!s.text))throw new Error('Không được để trống lời thoại.');
+ await saveCloneJob();
+ const audio=[];
+ for(let i=0;i<S.cloneJob.segments.length;i++)audio.push(await synthesizeCloneSegment(S.cloneJob.segments[i],i,S.cloneJob.segments.length));
+ setCloneProgress('Dựng timeline audio',84,'Đang đặt từng câu vào đúng mốc thời gian...');
+ const aligned=await composeAlignedSpeech(audio,source.duration,(n,total)=>setCloneProgress('Dựng timeline audio',84+Math.round(n/total*6)));
+ S.cloneJob.alignedAudio={id:'clone-aligned-'+Date.now(),kind:'audio',blob:aligned.blob,duration:aligned.duration,createdAt:Date.now()};
+ S.cloneJob.segmentAudio=[];S.cloneJob.resultUrl=null;
+ setCloneProgress('Sẵn sàng lip-sync',90,'Audio mới đã khớp timeline. Nghe thử trước khi tạo video.');
+ await saveCloneJob();renderCloneState();
+}
+async function uploadSyncAsset(blob,name,type,contentType){
+ const presign=await api('clone-upload-url',{fileName:name,contentType,size:blob.size,consent:true});
+ const putResult=await fetch(presign.uploadUrl,{method:'PUT',headers:{'Content-Type':contentType},body:blob,signal:AbortSignal.timeout(180000)});
+ if(!putResult.ok)throw new Error(`Upload media lip-sync thất bại (HTTP ${putResult.status}).`);
+ return api('clone-register-asset',{url:presign.url,type,name,consent:true});
+}
+async function renderCloneVideo(){
+ ensureProvider('sync');requireConsent('#clone-consent');
+ const source=cloneSourceVideo();if(!source||!S.cloneJob?.alignedAudio?.blob)throw new Error('Cần video nguồn và audio timeline.');
+ setCloneProgress('Upload video',91,'Đang tải video nguồn lên dịch vụ lip-sync...');
+ let videoType=source.blob.type||'video/mp4';if(videoType==='video/x-m4v')videoType='video/mp4';
+ const video=await uploadSyncAsset(source.blob,source.name||'source-video.mp4','VIDEO',videoType);
+ S.cloneJob.assetIds=[video.id];await saveCloneJob();
+ setCloneProgress('Upload audio',93,'Đang tải audio mới...');
+ const audio=await uploadSyncAsset(S.cloneJob.alignedAudio.blob,'ibee-aligned.wav','AUDIO','audio/wav');
+ S.cloneJob.assetIds.push(audio.id);await saveCloneJob();
+ setCloneProgress('Lip-sync',95,'Đang gửi tác vụ đồng bộ khẩu hình...');
+ const job=await api('clone-submit-video',{videoAssetId:video.id,audioAssetId:audio.id,consent:true});
+ S.cloneJob.generationId=job.id;await saveCloneJob();
+ let state=null;
+ for(let i=0;i<180;i++){
+  await pause(i<10?3000:5000);state=await api('clone-video-status',{id:job.id});
+  if(state.failed)throw new Error(state.error||'Tạo video lip-sync thất bại.');
+  if(state.ready)break;
+  setCloneProgress('Lip-sync',95+Math.min(4,Math.round(i/45)),`Đang đồng bộ khẩu hình... ${i+1}`);
+ }
+ if(!state?.ready||!state.outputUrl)throw new Error('Lip-sync chưa hoàn tất trong thời gian chờ. Tác vụ vẫn có thể đang xử lý.');
+ S.cloneJob.resultUrl=state.outputUrl;setCloneProgress('Hoàn tất',100,'Video đã hoàn tất. Hãy xem lại toàn bộ trước khi sử dụng.');
+ await saveCloneJob();renderCloneState();
+ try{await api('clone-cleanup',{assetIds:S.cloneJob.assetIds});S.cloneJob.assetIds=[];await saveCloneJob()}catch{}
+}
 function renderSettings(){
  const cfg=S.session;
  const defs=[['vbee','Ibee AIVoice','Cấu hình API phía máy chủ'],['google','Google Gemini','GOOGLE_API_KEY'],['deepseek','DeepSeek','DEEPSEEK_API_KEY'],['openai','OpenAI','OPENAI_API_KEY']];
