@@ -87,7 +87,7 @@ function cloneVideoMarkup(){
  const videos=S.assets.filter(a=>a.kind==='video');
  const selected=S.cloneJob?.sourceVideoId||S.selectedVideo||'';
  const voice=S.session.assignedVoice;
- return `<div class="hero"><div><span class="eyebrow">VIDEO VOICE CLONE</span><h1>Clon giọng <span class="hero-accent">Video.</span></h1><p>Giữ nguyên video gốc, thay phần lời nói bằng giọng Ibee đã được cấp và căn sát timeline nguồn.</p></div><span class="pill purple">${icon('magic')} Không phí lip-sync · ≤ 3 phút</span></div>
+ return `<div class="hero"><div><span class="eyebrow">VIDEO VOICE CLONE</span><h1>Clon giọng <span class="hero-accent">Video.</span></h1><p>Giữ nguyên video gốc, thay phần lời nói bằng giọng Ibee đã được cấp và căn sát timeline nguồn.</p></div><span class="pill purple">${icon('magic')} Xử lý tại máy · ≤ 3 phút</span></div>
  <div class="grid2"><section class="panel"><div class="panel-head"><h2>1. Video nguồn</h2>${icon('video')}</div>
  <div class="field"><label>Chọn video trong thư viện</label><select id="clone-source-video"><option value="">-- Chọn video --</option>${videos.map(v=>`<option value="${esc(v.id)}" ${v.id===selected?'selected':''}>${esc(v.name)} · ${clock(v.duration)}</option>`).join('')}</select></div>
  <div id="clone-source-preview" class="camera-box small-preview">${selected&&videos.some(v=>v.id===selected)?`<video controls playsinline src="${esc(blobUrl(videos.find(v=>v.id===selected)))}"></video>`:'<div class="camera-empty"><strong>Chưa chọn video</strong><p>Thêm video ở mục Tư liệu video trước.</p></div>'}</div>
