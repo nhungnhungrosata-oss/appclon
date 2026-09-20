@@ -96,3 +96,11 @@ test('video voice clone replaces audio locally without lip-sync provider or FFmp
   assert.deepEqual(pkg.dependencies||{},{});
   assert.doesNotMatch(JSON.stringify(pkg),/ffmpeg/i);
 });
+
+
+test('admin UI shows only a masked OpenAI key fingerprint',async()=>{
+  const source=await readFile('public/app.js','utf8');
+  assert.match(source,/OpenAI key production đang đọc/);
+  assert.match(source,/oa\.hint/);
+  assert.doesNotMatch(source,/OPENAI_API_KEY\}\}/);
+});
