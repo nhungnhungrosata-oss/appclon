@@ -1,4 +1,4 @@
-import { initDB, put, all, remove, clear, blobUrl, releaseUrls, download, pause, cleanMime, durationOf, sampleFrames, Recorder } from './media.js';
+import { initDB, put, all, remove, clear, blobUrl, releaseUrls, download, pause, cleanMime, durationOf, sampleFrames, toBase64, extractSpeechChunks, composeAlignedSpeech, mediaDuration, Recorder } from './media.js';
 
 const $ = (s, root = document) => root.querySelector(s);
 const $$ = (s, root = document) => [...root.querySelectorAll(s)];
@@ -24,8 +24,8 @@ const icon = n => {
 const logo='<img class="logo-icon" src="/favicon.svg" alt="">';
 const clock=s=>`${String(Math.floor((s||0)/60)).padStart(2,'0')}:${String(Math.floor((s||0)%60)).padStart(2,'0')}`;
 const size=b=>(b/1024/1024).toFixed(1)+' MB';
-const S={session:null,page:'media',assets:[],selectedVideo:null,camera:new Recorder(),progress:new Set(),latestAudio:null,adminState:null};
-const pages={media:'Tư liệu video',script:'Viết kịch bản',voice:'Giọng Của Tôi',settings:'Thiết lập'};
+const S={session:null,page:'media',assets:[],selectedVideo:null,camera:new Recorder(),progress:new Set(),latestAudio:null,adminState:null,cloneJob:null};
+const pages={media:'Tư liệu video',script:'Viết kịch bản',voice:'Giọng Của Tôi',clone:'Clon giọng Video',settings:'Thiết lập'};
 const canOpenPage=page=>page!=='settings'||S.session?.role==='admin';
 let toastTimer;
 
@@ -82,6 +82,29 @@ function voiceMarkup(){
  <section class="panel"><div class="panel-head"><h2>Giọng được cấp</h2>${icon('mic')}</div><div class="notice ${v?'success':'warning'}">${v?`<strong>${esc(v.label)}</strong><br><code>${esc(v.code)}</code>`:'Admin chưa gán giọng cho tài khoản này.'}</div><div class="divider"></div><div class="field"><label>Văn bản cần đọc</label><textarea id="voice-text" rows="12" maxlength="5000"></textarea><small id="voice-count">0 / 5.000 ký tự</small></div><div class="field"><label>Tốc độ</label><select id="voice-speed"><option value="0.85">0,85x</option><option value="1" selected>1x tự nhiên</option><option value="1.15">1,15x</option></select></div><label class="check"><input id="tts-consent" type="checkbox">Tôi đồng ý gửi văn bản cho Ibee để tạo audio.</label><button id="generate-voice" class="purple full" ${v?'':'disabled'}>Tạo MP3 bằng Ibee</button><p id="voice-status" class="status-line"></p></section>
  <section class="panel"><div class="panel-head"><h2>Audio kết quả</h2><span class="pill">MP3</span></div><div id="audio-output" hidden class="audio-output"><audio id="tts-preview" controls></audio><div class="row between"><span id="audio-duration" class="pill green"></span><button id="download-audio" class="small">${icon('down')} Tải MP3</button></div></div><div class="notice">Không có mục clone giọng trên web này. Giọng được tạo và quản lý trong tài khoản Ibee, admin chỉ nhập mã giọng vào ClipLab.</div></section></div>`;
 }
+
+function cloneVideoMarkup(){
+ const videos=S.assets.filter(a=>a.kind==='video');
+ const selected=S.cloneJob?.sourceVideoId||S.selectedVideo||'';
+ const voice=S.session.assignedVoice;
+ return `<div class="hero"><div><span class="eyebrow">VIDEO VOICE CLONE</span><h1>Clon giọng <span class="hero-accent">Video.</span></h1><p>Giữ nguyên nội dung và timeline lời thoại, đổi sang giọng Ibee được cấp rồi đồng bộ khẩu hình.</p></div><span class="pill purple">${icon('magic')} 1 người nói · ≤ 3 phút</span></div>
+ <div class="grid2"><section class="panel"><div class="panel-head"><h2>1. Video nguồn</h2>${icon('video')}</div>
+ <div class="field"><label>Chọn video trong thư viện</label><select id="clone-source-video"><option value="">-- Chọn video --</option>${videos.map(v=>`<option value="${esc(v.id)}" ${v.id===selected?'selected':''}>${esc(v.name)} · ${clock(v.duration)}</option>`).join('')}</select></div>
+ <div id="clone-source-preview" class="camera-box small-preview">${selected&&videos.some(v=>v.id===selected)?`<video controls playsinline src="${esc(blobUrl(videos.find(v=>v.id===selected)))}"></video>`:'<div class="camera-empty"><strong>Chưa chọn video</strong><p>Thêm video ở mục Tư liệu video trước.</p></div>'}</div>
+ <div class="notice warning"><strong>Điều kiện tốt nhất:</strong> một người nói chính, tiếng Việt, không hát, không chồng tiếng, mặt nhìn thấy rõ. AI không thể bảo đảm tuyệt đối 100% biểu cảm hay khẩu hình với mọi cảnh quay.</div>
+ <label class="check"><input id="clone-consent" type="checkbox">Tôi có quyền sử dụng video, hình ảnh và giọng nói này; đồng ý gửi dữ liệu cho OpenAI, Ibee và dịch vụ lip-sync.</label>
+ <button id="clone-transcribe" class="primary full" ${selected&&voice?'':'disabled'}>Phân tích lời thoại & timeline</button><p id="clone-status" class="status-line"></p></section>
+ <section class="panel"><div class="panel-head"><h2>2. Giọng đích</h2>${icon('mic')}</div>
+ <div class="field"><label>Giọng Của Tôi</label><select id="clone-target-voice" ${voice?'':'disabled'}>${voice?`<option value="${esc(voice.code)}">${esc(voice.label)}</option>`:'<option>Admin chưa cấp giọng</option>'}</select></div>
+ <div class="notice">Module sử dụng đúng voice code Ibee đã được admin cấp. Người dùng không thể nhập voice code khác.</div>
+ <div class="divider"></div><div class="row between"><strong>Tiến trình</strong><span id="clone-stage" class="pill">${esc(S.cloneJob?.stage||'Chưa bắt đầu')}</span></div>
+ <div class="progress"><div id="clone-progress" style="width:${Number(S.cloneJob?.progress||0)}%"></div></div></section></div>
+ <section class="panel" id="clone-transcript-panel" ${S.cloneJob?.segments?.length?'':'hidden'}><div class="panel-head"><div><h2>3. Kiểm tra lời thoại</h2><p class="tiny muted status-line">Sửa sai chính tả nếu cần. Mốc thời gian được khóa để giữ timeline video.</p></div><span class="pill green" id="clone-segment-count">${S.cloneJob?.segments?.length||0} đoạn</span></div>
+ <div id="clone-transcript-list" class="stack"></div><div class="row between"><span class="tiny muted">Không đổi nội dung nếu mục tiêu là giữ nguyên lời nguồn.</span><button id="clone-synthesize" class="purple">Tạo giọng theo timeline</button></div></section>
+ <section class="panel" id="clone-render-panel" ${S.cloneJob?.alignedAudio?'':'hidden'}><div class="panel-head"><div><h2>4. Đồng bộ khẩu hình</h2><p class="tiny muted status-line">Audio mới đã được đặt đúng vị trí từng câu; bước này chỉ chỉnh khẩu hình theo audio mới.</p></div><span class="pill">Sync</span></div>
+ <audio id="clone-audio-preview" controls></audio><div class="divider"></div><button id="clone-render-video" class="primary full">Tạo video hoàn chỉnh</button><p id="clone-render-status" class="status-line"></p></section>
+ <section class="panel result" id="clone-result-panel" ${S.cloneJob?.resultUrl?'':'hidden'}><div class="panel-head"><h2>Video kết quả</h2><a id="clone-download-result" class="small" href="${esc(S.cloneJob?.resultUrl||'#')}" target="_blank" rel="noopener noreferrer">Tải video</a></div><video id="clone-result-video" controls playsinline src="${esc(S.cloneJob?.resultUrl||'')}"></video></section>`;
+}
 function settingsMarkup(){
  const admin=S.session.role==='admin';
  return `<div class="hero"><div><span class="eyebrow">CONTROL CENTER</span><h1>Thiết lập & <span class="hero-accent">phân quyền.</span></h1></div><button id="refresh-settings" class="small">${icon('refresh')} Làm mới</button></div><div class="grid2">
@@ -91,9 +114,9 @@ function settingsMarkup(){
 }
 function renderApp(){
  $('#login-screen').hidden=true;$('#app').hidden=false;
- const navItems=[['media',pages.media,'video'],['script',pages.script,'pen'],['voice',pages.voice,'mic'],['settings',pages.settings,'settings']].filter(([p])=>canOpenPage(p));
+ const navItems=[['media',pages.media,'video'],['script',pages.script,'pen'],['voice',pages.voice,'mic'],['clone',pages.clone,'magic'],['settings',pages.settings,'settings']].filter(([p])=>canOpenPage(p));
  const nav=navItems.map(([p,label,ico])=>`<button data-page="${p}" class="${p==='media'?'active':''}">${icon(ico)}<span>${label}</span></button>`).join('');
- $('#app').innerHTML=`<aside class="sidebar"><div class="brand">${logo}<div><strong>cliplab<span class="hero-accent">.</span></strong><small>IBEE CREATOR STUDIO</small></div></div><div class="workspace"><span class="avatar">${esc(S.session.username.slice(0,2).toUpperCase())}</span><div><strong>${esc(S.session.username)}</strong><p class="tiny muted">${esc(S.session.role)}</p></div></div><p class="nav-label">CHỨC NĂNG</p><nav class="nav">${nav}</nav><div class="sidebar-bottom"><div class="free-card"><span class="pill green">IBEE API</span><h3>Giọng theo phân quyền</h3><p>Admin cấp giọng cho từng tài khoản con.</p></div></div></aside><main class="main"><header class="topbar"><div class="crumb"><strong id="breadcrumb">Tư liệu video</strong></div><div class="user-badge"><span class="pill ${S.session.role==='admin'?'purple':'green'}">${esc(S.session.role)}</span><strong>${esc(S.session.username)}</strong><button id="logout" class="small">${icon('logout')}</button></div></header><div class="content"><div id="page-media">${mediaMarkup()}</div><div id="page-script" hidden>${scriptMarkup()}</div><div id="page-voice" hidden>${voiceMarkup()}</div><div id="page-settings" hidden>${settingsMarkup()}</div></div></main>`;
+ $('#app').innerHTML=`<aside class="sidebar"><div class="brand">${logo}<div><strong>cliplab<span class="hero-accent">.</span></strong><small>IBEE CREATOR STUDIO</small></div></div><div class="workspace"><span class="avatar">${esc(S.session.username.slice(0,2).toUpperCase())}</span><div><strong>${esc(S.session.username)}</strong><p class="tiny muted">${esc(S.session.role)}</p></div></div><p class="nav-label">CHỨC NĂNG</p><nav class="nav">${nav}</nav><div class="sidebar-bottom"><div class="free-card"><span class="pill green">IBEE API</span><h3>Giọng theo phân quyền</h3><p>Admin cấp giọng cho từng tài khoản con.</p></div></div></aside><main class="main"><header class="topbar"><div class="crumb"><strong id="breadcrumb">Tư liệu video</strong></div><div class="user-badge"><span class="pill ${S.session.role==='admin'?'purple':'green'}">${esc(S.session.role)}</span><strong>${esc(S.session.username)}</strong><button id="logout" class="small">${icon('logout')}</button></div></header><div class="content"><div id="page-media">${mediaMarkup()}</div><div id="page-script" hidden>${scriptMarkup()}</div><div id="page-voice" hidden>${voiceMarkup()}</div><div id="page-clone" hidden>${cloneVideoMarkup()}</div><div id="page-settings" hidden>${settingsMarkup()}</div></div></main>`;
 }
 function navigate(page){
  if(!pages[page]||!canOpenPage(page)||S.camera.recording)return;
