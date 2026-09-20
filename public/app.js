@@ -1,4 +1,4 @@
-import { initDB, put, all, remove, clear, blobUrl, releaseUrls, download, pause, cleanMime, durationOf, sampleFrames, toBase64, extractSpeechChunks, composeAlignedSpeech, mediaDuration, Recorder } from './media.js';
+import { initDB, put, all, remove, clear, blobUrl, releaseUrls, download, pause, cleanMime, durationOf, sampleFrames, toBase64, extractSpeechChunks, composeAlignedSpeech, mediaDuration, replaceVideoAudio, Recorder } from './media.js';
 
 const $ = (s, root = document) => root.querySelector(s);
 const $$ = (s, root = document) => [...root.querySelectorAll(s)];
@@ -87,12 +87,12 @@ function cloneVideoMarkup(){
  const videos=S.assets.filter(a=>a.kind==='video');
  const selected=S.cloneJob?.sourceVideoId||S.selectedVideo||'';
  const voice=S.session.assignedVoice;
- return `<div class="hero"><div><span class="eyebrow">VIDEO VOICE CLONE</span><h1>Clon giọng <span class="hero-accent">Video.</span></h1><p>Giữ nguyên nội dung và timeline lời thoại, đổi sang giọng Ibee được cấp rồi đồng bộ khẩu hình.</p></div><span class="pill purple">${icon('magic')} 1 người nói · ≤ 3 phút</span></div>
+ return `<div class="hero"><div><span class="eyebrow">VIDEO VOICE CLONE</span><h1>Clon giọng <span class="hero-accent">Video.</span></h1><p>Giữ nguyên video gốc, thay phần lời nói bằng giọng Ibee đã được cấp và căn sát timeline nguồn.</p></div><span class="pill purple">${icon('magic')} Không phí lip-sync · ≤ 3 phút</span></div>
  <div class="grid2"><section class="panel"><div class="panel-head"><h2>1. Video nguồn</h2>${icon('video')}</div>
  <div class="field"><label>Chọn video trong thư viện</label><select id="clone-source-video"><option value="">-- Chọn video --</option>${videos.map(v=>`<option value="${esc(v.id)}" ${v.id===selected?'selected':''}>${esc(v.name)} · ${clock(v.duration)}</option>`).join('')}</select></div>
  <div id="clone-source-preview" class="camera-box small-preview">${selected&&videos.some(v=>v.id===selected)?`<video controls playsinline src="${esc(blobUrl(videos.find(v=>v.id===selected)))}"></video>`:'<div class="camera-empty"><strong>Chưa chọn video</strong><p>Thêm video ở mục Tư liệu video trước.</p></div>'}</div>
- <div class="notice warning"><strong>Điều kiện tốt nhất:</strong> một người nói chính, tiếng Việt, không hát, không chồng tiếng, mặt nhìn thấy rõ. AI không thể bảo đảm tuyệt đối 100% biểu cảm hay khẩu hình với mọi cảnh quay.</div>
- <label class="check"><input id="clone-consent" type="checkbox">Tôi có quyền sử dụng video, hình ảnh và giọng nói này; đồng ý gửi dữ liệu cho OpenAI, Ibee và dịch vụ lip-sync.</label>
+ <div class="notice warning"><strong>Điều kiện tốt nhất:</strong> một người nói chính, tiếng Việt, không hát, không chồng tiếng. Hình ảnh và khẩu hình video gốc được giữ nguyên; độ khớp miệng phụ thuộc mức độ audio Ibee bám sát timeline và nhịp nói nguồn.</div>
+ <label class="check"><input id="clone-consent" type="checkbox">Tôi có quyền sử dụng video, hình ảnh và giọng nói này; đồng ý gửi audio cần thiết cho OpenAI và Ibee. Bước ghép video chạy ngay trên trình duyệt.</label>
  <button id="clone-transcribe" class="primary full" ${selected&&voice?'':'disabled'}>Phân tích lời thoại & timeline</button><p id="clone-status" class="status-line"></p></section>
  <section class="panel"><div class="panel-head"><h2>2. Giọng đích</h2>${icon('mic')}</div>
  <div class="field"><label>Giọng Của Tôi</label><select id="clone-target-voice" ${voice?'':'disabled'}>${voice?`<option value="${esc(voice.code)}">${esc(voice.label)}</option>`:'<option>Admin chưa cấp giọng</option>'}</select></div>
@@ -101,9 +101,9 @@ function cloneVideoMarkup(){
  <div class="progress"><div id="clone-progress" style="width:${Number(S.cloneJob?.progress||0)}%"></div></div></section></div>
  <section class="panel" id="clone-transcript-panel" ${S.cloneJob?.segments?.length?'':'hidden'}><div class="panel-head"><div><h2>3. Kiểm tra lời thoại</h2><p class="tiny muted status-line">Sửa sai chính tả nếu cần. Mốc thời gian được khóa để giữ timeline video.</p></div><span class="pill green" id="clone-segment-count">${S.cloneJob?.segments?.length||0} đoạn</span></div>
  <div id="clone-transcript-list" class="stack"></div><div class="row between"><span class="tiny muted">Không đổi nội dung nếu mục tiêu là giữ nguyên lời nguồn.</span><button id="clone-synthesize" class="purple">Tạo giọng theo timeline</button></div></section>
- <section class="panel" id="clone-render-panel" ${S.cloneJob?.alignedAudio?'':'hidden'}><div class="panel-head"><div><h2>4. Đồng bộ khẩu hình</h2><p class="tiny muted status-line">Audio mới đã được đặt đúng vị trí từng câu; bước này chỉ chỉnh khẩu hình theo audio mới.</p></div><span class="pill">Sync</span></div>
- <audio id="clone-audio-preview" controls></audio><div class="divider"></div><button id="clone-render-video" class="primary full">Tạo video hoàn chỉnh</button><p id="clone-render-status" class="status-line"></p></section>
- <section class="panel result" id="clone-result-panel" ${S.cloneJob?.resultUrl?'':'hidden'}><div class="panel-head"><h2>Video kết quả</h2><a id="clone-download-result" class="small" href="${esc(S.cloneJob?.resultUrl||'#')}" target="_blank" rel="noopener noreferrer">Tải video</a></div><video id="clone-result-video" controls playsinline src="${esc(S.cloneJob?.resultUrl||'')}"></video></section>`;
+ <section class="panel" id="clone-render-panel" ${S.cloneJob?.alignedAudio?'':'hidden'}><div class="panel-head"><div><h2>4. Ghép giọng vào video</h2><p class="tiny muted status-line">Không chỉnh khuôn mặt hoặc khẩu hình. Video gốc được phát lại và thay track tiếng bằng audio Ibee đã căn timeline.</p></div><span class="pill">Local</span></div>
+ <audio id="clone-audio-preview" controls></audio><div class="notice">Bước xuất video chạy theo thời gian thực trên máy. Ví dụ video 60 giây sẽ mất khoảng 60 giây để ghép. Trình duyệt có thể mã hóa lại file nên dung lượng/codec có thể thay đổi, nhưng nội dung hình ảnh không bị AI chỉnh sửa.</div><div class="divider"></div><button id="clone-render-video" class="primary full">Ghép giọng vào video</button><p id="clone-render-status" class="status-line"></p></section>
+ <section class="panel result" id="clone-result-panel" ${S.cloneJob?.resultVideo?.blob?'':'hidden'}><div class="panel-head"><h2>Video kết quả</h2><button id="clone-download-result" class="small">${icon('down')} Tải video</button></div><video id="clone-result-video" controls playsinline></video></section>`;
 }
 function settingsMarkup(){
  const admin=S.session.role==='admin';
@@ -178,7 +178,7 @@ function cloneSourceVideo(){
  return S.assets.find(a=>a.id===id&&a.kind==='video')||null;
 }
 function newCloneJob(sourceVideoId=''){
- return {id:'video-voice-clone-current',type:'video-voice-clone',sourceVideoId,stage:'Chưa bắt đầu',progress:0,segments:[],alignedAudio:null,generationId:null,resultUrl:null,assetIds:[],createdAt:Date.now(),updatedAt:Date.now()};
+ return {id:'video-voice-clone-current',type:'video-voice-clone',sourceVideoId,stage:'Chưa bắt đầu',progress:0,segments:[],alignedAudio:null,resultVideo:null,createdAt:Date.now(),updatedAt:Date.now()};
 }
 async function saveCloneJob(){
  if(!S.cloneJob)return;
@@ -193,19 +193,16 @@ function setCloneProgress(stage,progress,status=''){
  if(status&&$('#clone-status'))$('#clone-status').textContent=status;
 }
 function normalizeCloneSegments(rows,duration){
- const clean=rows.filter(x=>x&&typeof x.text==='string'&&x.text.trim()&&Number.isFinite(x.start)&&Number.isFinite(x.end)&&x.end>x.start)
+ const segments=rows.filter(x=>x&&typeof x.text==='string'&&x.text.trim()&&Number.isFinite(x.start)&&Number.isFinite(x.end)&&x.end>x.start)
   .map((x,i)=>({id:x.id||String(i),start:Math.max(0,Number(x.start)),end:Math.min(duration,Number(x.end)),text:x.text.trim()}))
   .filter(x=>x.end>x.start).sort((a,b)=>a.start-b.start);
- const merged=[];
- for(const row of clean){
-  const prev=merged.at(-1);
-  if(prev&&row.start-prev.end<0.28&&row.end-prev.start<=9){prev.end=row.end;prev.text=(prev.text+' '+row.text).trim()}
-  else merged.push({...row});
+ while(segments.length>40){
+  let best=0,bestGap=Infinity;
+  for(let i=0;i<segments.length-1;i++){const gap=Math.max(0,segments[i+1].start-segments[i].end);if(gap<bestGap){bestGap=gap;best=i}}
+  const a=segments[best],b=segments[best+1];
+  segments.splice(best,2,{id:a.id,start:a.start,end:b.end,text:(a.text+' '+b.text).trim()});
  }
- while(merged.length>24){
-  const next=[];for(let i=0;i<merged.length;i+=2){const a=merged[i],b=merged[i+1];next.push(b?{id:a.id,start:a.start,end:b.end,text:(a.text+' '+b.text).trim()}:a)}merged.splice(0,merged.length,...next);
- }
- return merged.map((x,i)=>({...x,id:'seg-'+i,start:Number(x.start.toFixed(3)),end:Number(x.end.toFixed(3))}));
+ return segments.map((x,i)=>({...x,id:'seg-'+i,start:Number(x.start.toFixed(3)),end:Number(x.end.toFixed(3))}));
 }
 function renderCloneState(){
  const job=S.cloneJob;
@@ -227,8 +224,8 @@ function renderCloneState(){
  }
  const result=$('#clone-result-panel');
  if(result){
-  result.hidden=!job?.resultUrl;
-  if(job?.resultUrl){$('#clone-result-video').src=job.resultUrl;$('#clone-download-result').href=job.resultUrl}
+  result.hidden=!job?.resultVideo?.blob;
+  if(job?.resultVideo?.blob){const u=blobUrl(job.resultVideo);$('#clone-result-video').src=u;$('#clone-result-video').load()}
  }
 }
 async function transcribeCloneVideo(){
@@ -246,7 +243,7 @@ async function transcribeCloneVideo(){
  }
  const segments=normalizeCloneSegments(rows,source.duration);
  if(!segments.length)throw new Error('Không nhận thấy lời thoại tiếng Việt rõ ràng trong video.');
- S.cloneJob.segments=segments;S.cloneJob.sourceDuration=source.duration;S.cloneJob.alignedAudio=null;S.cloneJob.resultUrl=null;S.cloneJob.assetIds=[];
+ S.cloneJob.segments=segments;S.cloneJob.sourceDuration=source.duration;S.cloneJob.alignedAudio=null;S.cloneJob.resultVideo=null;
  setCloneProgress('Chờ kiểm tra lời thoại',50,`Đã nhận dạng ${segments.length} đoạn. Hãy kiểm tra nội dung trước khi tạo giọng.`);
  await saveCloneJob();renderCloneState();
 }
@@ -296,44 +293,27 @@ async function synthesizeCloneTimeline(){
  setCloneProgress('Dựng timeline audio',84,'Đang đặt từng câu vào đúng mốc thời gian...');
  const aligned=await composeAlignedSpeech(audio,source.duration,(n,total)=>setCloneProgress('Dựng timeline audio',84+Math.round(n/total*6)));
  S.cloneJob.alignedAudio={id:'clone-aligned-'+Date.now(),kind:'audio',blob:aligned.blob,duration:aligned.duration,createdAt:Date.now()};
- S.cloneJob.segmentAudio=[];S.cloneJob.resultUrl=null;
- setCloneProgress('Sẵn sàng lip-sync',90,'Audio mới đã khớp timeline. Nghe thử trước khi tạo video.');
+ S.cloneJob.segmentAudio=[];S.cloneJob.resultVideo=null;
+ setCloneProgress('Sẵn sàng ghép video',90,'Audio mới đã khớp timeline. Nghe thử trước khi ghép vào video gốc.');
  await saveCloneJob();renderCloneState();
-}
-async function uploadSyncAsset(blob,name,type,contentType){
- const presign=await api('clone-upload-url',{fileName:name,contentType,size:blob.size,consent:true});
- const putResult=await fetch(presign.uploadUrl,{method:'PUT',headers:{'Content-Type':contentType},body:blob,signal:AbortSignal.timeout(180000)});
- if(!putResult.ok)throw new Error(`Upload media lip-sync thất bại (HTTP ${putResult.status}).`);
- return api('clone-register-asset',{url:presign.url,type,name,consent:true});
 }
 async function renderCloneVideo(){
- ensureProvider('sync');requireConsent('#clone-consent');
+ requireConsent('#clone-consent');
  const source=cloneSourceVideo();if(!source||!S.cloneJob?.alignedAudio?.blob)throw new Error('Cần video nguồn và audio timeline.');
- setCloneProgress('Upload video',91,'Đang tải video nguồn lên dịch vụ lip-sync...');
- let videoType=source.blob.type||'video/mp4';if(videoType==='video/x-m4v')videoType='video/mp4';
- const video=await uploadSyncAsset(source.blob,source.name||'source-video.mp4','VIDEO',videoType);
- S.cloneJob.assetIds=[video.id];await saveCloneJob();
- setCloneProgress('Upload audio',93,'Đang tải audio mới...');
- const audio=await uploadSyncAsset(S.cloneJob.alignedAudio.blob,'ibee-aligned.wav','AUDIO','audio/wav');
- S.cloneJob.assetIds.push(audio.id);await saveCloneJob();
- setCloneProgress('Lip-sync',95,'Đang gửi tác vụ đồng bộ khẩu hình...');
- const job=await api('clone-submit-video',{videoAssetId:video.id,audioAssetId:audio.id,consent:true});
- S.cloneJob.generationId=job.id;await saveCloneJob();
- let state=null;
- for(let i=0;i<180;i++){
-  await pause(i<10?3000:5000);state=await api('clone-video-status',{id:job.id});
-  if(state.failed)throw new Error(state.error||'Tạo video lip-sync thất bại.');
-  if(state.ready)break;
-  setCloneProgress('Lip-sync',95+Math.min(4,Math.round(i/45)),`Đang đồng bộ khẩu hình... ${i+1}`);
- }
- if(!state?.ready||!state.outputUrl)throw new Error('Lip-sync chưa hoàn tất trong thời gian chờ. Tác vụ vẫn có thể đang xử lý.');
- S.cloneJob.resultUrl=state.outputUrl;setCloneProgress('Hoàn tất',100,'Video đã hoàn tất. Hãy xem lại toàn bộ trước khi sử dụng.');
+ setCloneProgress('Ghép video',91,'Đang giữ nguyên hình ảnh video và thay track tiếng. Không đóng tab trong lúc xử lý...');
+ const result=await replaceVideoAudio(source.blob,S.cloneJob.alignedAudio.blob,source.duration,(current,total)=>{
+   const pct=91+Math.round(Math.min(1,current/Math.max(.1,total))*8);
+   setCloneProgress('Ghép video',pct,`Đang xuất video... ${clock(current)} / ${clock(total)}`);
+ });
+ const rec={id:'clone-result-'+Date.now(),kind:'clone-result',name:`video-clon-giong-${Date.now()}.${result.extension}`,blob:result.blob,duration:result.duration,mime:result.mime,createdAt:Date.now()};
+ S.cloneJob.resultVideo=rec;
+ setCloneProgress('Hoàn tất',100,`Đã ghép giọng vào video. Định dạng: ${result.extension.toUpperCase()}.`);
  await saveCloneJob();renderCloneState();
- try{await api('clone-cleanup',{assetIds:S.cloneJob.assetIds});S.cloneJob.assetIds=[];await saveCloneJob()}catch{}
 }
+
 function renderSettings(){
  const cfg=S.session;
- const defs=[['vbee','Ibee AIVoice','Cấu hình API phía máy chủ'],['sync','Lip-sync Video','SYNC_API_KEY'],['google','Google Gemini','GOOGLE_API_KEY'],['deepseek','DeepSeek','DEEPSEEK_API_KEY'],['openai','OpenAI','OPENAI_API_KEY']];
+ const defs=[['vbee','Ibee AIVoice','Cấu hình API phía máy chủ'],['google','Google Gemini','GOOGLE_API_KEY'],['deepseek','DeepSeek','DEEPSEEK_API_KEY'],['openai','OpenAI','OPENAI_API_KEY']];
  $('#provider-list').innerHTML=defs.map(([id,n,e])=>`<div class="provider"><h3>${n}</h3><span class="pill ${cfg.providers[id]?'green':''}">${cfg.providers[id]?'Đã cấu hình':'Chưa cấu hình'}</span><code>${e}</code></div>`).join('');
  $('#limiter-notice').textContent=cfg.limiter==='redis'?'Redis đã kết nối: có thể lưu phân quyền giọng cho nhiều tài khoản.':'Chưa có Upstash Redis: tạo nội dung đa tài khoản và gán giọng sẽ bị chặn để tránh vượt hạn mức.';
  $('#limiter-notice').className=`notice ${cfg.limiter==='redis'?'success':'warning'}`;
@@ -353,6 +333,7 @@ function bindCloneEvents(){
  const transcribe=$('#clone-transcribe');if(transcribe)transcribe.onclick=()=>busy(transcribe,transcribeCloneVideo,'#clone-status');
  const synth=$('#clone-synthesize');if(synth)synth.onclick=()=>busy(synth,synthesizeCloneTimeline,'#clone-status');
  const render=$('#clone-render-video');if(render)render.onclick=()=>busy(render,renderCloneVideo,'#clone-render-status');
+ const dl=$('#clone-download-result');if(dl)dl.onclick=()=>{const v=S.cloneJob?.resultVideo;if(v?.blob)download(v.blob,v.name||'video-clon-giong.webm')};
  const source=$('#clone-source-video');if(source)source.onchange=async e=>{const id=e.target.value;if(!S.cloneJob||S.cloneJob.sourceVideoId!==id){S.cloneJob=newCloneJob(id);await saveCloneJob();const page=$('#page-clone');page.innerHTML=cloneVideoMarkup();bindCloneEvents();renderCloneState()}};
 }
 function bindEvents(){
