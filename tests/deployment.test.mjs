@@ -12,29 +12,42 @@ test('static deployment assets exist and local imports resolve',async()=>{
     for(const m of source.matchAll(/from\s+['"](\.\.?\/[^'"]+)['"]/g)) await access(resolve(dirname(file),m[1]));
   }
 });
+
 test('frontend has Vbee admin flow and no Fish/Lip Sync UI',async()=>{
   const source=await readFile('public/app.js','utf8');
-  assert.match(source,/Vbee/); assert.match(source,/admin-assign-voice/);
+  assert.match(source,/Vbee/);
+  assert.match(source,/admin-assign-voice/);
   assert.doesNotMatch(source,/Fish Audio|FISH FREE|Lip Sync|fish-handoff/);
 });
+
 test('Vercel config keeps Node API and static public output',async()=>{
-  const config=JSON.parse(await readFile('vercel.json','utf8')); const pkg=JSON.parse(await readFile('package.json','utf8'));
-  assert.equal(config.outputDirectory,'public'); assert.equal(config.buildCommand,'npm run build'); assert.equal(pkg.engines.node,'22.x'); assert.equal(typeof handler,'function');
+  const config=JSON.parse(await readFile('vercel.json','utf8'));
+  const pkg=JSON.parse(await readFile('package.json','utf8'));
+  assert.equal(config.outputDirectory,'public');
+  assert.equal(config.buildCommand,'npm run build');
+  assert.equal(pkg.engines.node,'22.x');
+  assert.equal(typeof handler,'function');
 });
 
-
-test('admin voice assignment captures selected value before disabling the select', async () => {
-  const source = await readFile('public/app.js', 'utf8');
-  assert.match(source, /const username=el\.dataset\.assignUser,voiceCode=el\.value;el\.disabled=true/);
-  assert.doesNotMatch(source, /busy\(el,async\(\)=>\{await api\('admin-assign-voice'/);
+test('admin voice assignment captures selected value before disabling the select',async()=>{
+  const source=await readFile('public/app.js','utf8');
+  assert.match(source,/const username=el\.dataset\.assignUser,voiceCode=el\.value;el\.disabled=true/);
+  assert.doesNotMatch(source,/busy\(el,async\(\)=>\{await api\('admin-assign-voice'/);
 });
 
-
-test('Vbee requests follow redirects and surface provider-specific errors', async () => {
-  const source = await readFile('lib/providers.mjs', 'utf8');
-  assert.match(source, /redirect: 'follow'/);
-  assert.match(source, /VBEE_NETWORK_ERROR/);
-  assert.match(source, /VBEE_BAD_RESPONSE/);
-  assert.match(source, /VBEE_API_ERROR/);
-  assert.doesNotMatch(source, /response_type: 'indirect'/);
+test('Vbee integration matches current batch API contract',async()=>{
+  const source=await readFile('lib/providers.mjs','utf8');
+  assert.match(source,/https:\/\/api\.vbee\.vn\/v1\/tts/);
+  assert.match(source,/https:\/\/api\.vbee\.vn\/v1\/tts\/requests/);
+  assert.match(source,/'App-Id': key\('VBEE_APP_ID'\)/);
+  assert.match(source,/process\.env\.VBEE_TOKEN \|\| process\.env\.VBEE_ACCESS_TOKEN/);
+  for(const literal of [
+    'text: script',
+    'voiceCode: voice.code',
+    "mode: 'async'",
+    "outputFormat: 'mp3'",
+    'webhookUrl:',
+    'clientPause:'
+  ]) assert.ok(source.includes(literal), 'missing Vbee field: '+literal);
+  for(const legacy of ['input_text','voice_code','callback_url','speed_rate','app_id:']) assert.ok(!source.includes(legacy),'legacy Vbee field remains: '+legacy);
 });

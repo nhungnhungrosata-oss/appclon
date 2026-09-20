@@ -46,7 +46,7 @@ export default async function handler(req, res) {
       ...session,
       models: models(),
       providers: {
-        vbee: !!(process.env.VBEE_APP_ID && process.env.VBEE_ACCESS_TOKEN),
+        vbee: !!(process.env.VBEE_APP_ID && (process.env.VBEE_TOKEN || process.env.VBEE_ACCESS_TOKEN)),
         google: !!process.env.GOOGLE_API_KEY,
         openai: !!process.env.OPENAI_API_KEY,
         deepseek: !!process.env.DEEPSEEK_API_KEY
