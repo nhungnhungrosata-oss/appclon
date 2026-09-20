@@ -1,7 +1,7 @@
 import { authenticate, users, verifyPassword, safeEqual, sessionCookie, checkOrigin, readBody, readJson, text, json, publicError, sha, fail, secret } from '../lib/core.mjs';
 import { hasRedis, limit, get, setPersistent } from '../lib/store.mjs';
 import { models, generateText, vbeeSubmit, vbeeStatus, vbeeAudio, assignedVoice, analyze, googleStart, googleChunk, googleFile } from '../lib/providers.mjs';
-import { transcribeCloneChunk, syncCreateUpload, syncRegisterAsset, syncSubmitGeneration, syncGenerationStatus, syncCleanupAssets } from '../lib/video-clone.mjs';
+import { transcribeCloneChunk } from '../lib/video-clone.mjs';
 
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
@@ -50,8 +50,7 @@ export default async function handler(req, res) {
         vbee: !!(process.env.VBEE_APP_ID && (process.env.VBEE_TOKEN || process.env.VBEE_ACCESS_TOKEN)),
         google: !!process.env.GOOGLE_API_KEY,
         openai: !!process.env.OPENAI_API_KEY,
-        deepseek: !!process.env.DEEPSEEK_API_KEY,
-        sync: !!process.env.SYNC_API_KEY
+        deepseek: !!process.env.DEEPSEEK_API_KEY
       },
       assignedVoice: await assignedVoice(session.username),
       limiter: hasRedis() ? 'redis' : 'memory',
@@ -114,11 +113,6 @@ export default async function handler(req, res) {
     }
     if (action === 'tts-status') return json(res, await vbeeStatus(user, b.token));
     if (action === 'clone-transcribe') return json(res, await transcribeCloneChunk(user, b));
-    if (action === 'clone-upload-url') return json(res, await syncCreateUpload(user, b));
-    if (action === 'clone-register-asset') return json(res, await syncRegisterAsset(user, b));
-    if (action === 'clone-submit-video') return json(res, await syncSubmitGeneration(user, b));
-    if (action === 'clone-video-status') return json(res, await syncGenerationStatus(user, b));
-    if (action === 'clone-cleanup') return json(res, await syncCleanupAssets(user, b));
 
     if (action === 'admin-state') {
       if (session.role !== 'admin') fail(403, 'Chỉ admin được quản lý.');
