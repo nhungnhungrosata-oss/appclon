@@ -21,3 +21,10 @@ test('Vercel config keeps Node API and static public output',async()=>{
   const config=JSON.parse(await readFile('vercel.json','utf8')); const pkg=JSON.parse(await readFile('package.json','utf8'));
   assert.equal(config.outputDirectory,'public'); assert.equal(config.buildCommand,'npm run build'); assert.equal(pkg.engines.node,'22.x'); assert.equal(typeof handler,'function');
 });
+
+
+test('admin voice assignment captures selected value before disabling the select', async () => {
+  const source = await readFile('public/app.js', 'utf8');
+  assert.match(source, /const username=el\.dataset\.assignUser,voiceCode=el\.value;el\.disabled=true/);
+  assert.doesNotMatch(source, /busy\(el,async\(\)=>\{await api\('admin-assign-voice'/);
+});
