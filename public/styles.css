@@ -14,3 +14,9 @@
 #lip-source-info { margin-top: 14px; }
 #jobs .job .row strong { overflow-wrap: anywhere; min-width: 0; }
 #lip-result-project { max-width: 100%; }
+
+.small-preview{height:210px;margin-top:10px}
+.clone-segment{display:grid;gap:10px}
+.clone-segment textarea{min-height:64px;resize:vertical}
+#clone-result-video{width:100%;max-height:560px;border-radius:12px;background:#0d0e16}
+#clone-transcript-list{max-height:520px;overflow:auto;padding-right:4px}

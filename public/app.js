@@ -1,4 +1,4 @@
-import { initDB, put, all, remove, clear, blobUrl, releaseUrls, download, pause, cleanMime, durationOf, sampleFrames, Recorder } from './media.js';
+import { initDB, put, all, remove, clear, blobUrl, releaseUrls, download, pause, cleanMime, durationOf, sampleFrames, toBase64, extractSpeechChunks, composeAlignedSpeech, mediaDuration, Recorder } from './media.js';
 
 const $ = (s, root = document) => root.querySelector(s);
 const $$ = (s, root = document) => [...root.querySelectorAll(s)];
@@ -24,8 +24,8 @@ const icon = n => {
 const logo='<img class="logo-icon" src="/favicon.svg" alt="">';
 const clock=s=>`${String(Math.floor((s||0)/60)).padStart(2,'0')}:${String(Math.floor((s||0)%60)).padStart(2,'0')}`;
 const size=b=>(b/1024/1024).toFixed(1)+' MB';
-const S={session:null,page:'media',assets:[],selectedVideo:null,camera:new Recorder(),progress:new Set(),latestAudio:null,adminState:null};
-const pages={media:'Tư liệu video',script:'Viết kịch bản',voice:'Giọng Của Tôi',settings:'Thiết lập'};
+const S={session:null,page:'media',assets:[],selectedVideo:null,camera:new Recorder(),progress:new Set(),latestAudio:null,adminState:null,cloneJob:null};
+const pages={media:'Tư liệu video',script:'Viết kịch bản',voice:'Giọng Của Tôi',clone:'Clon giọng Video',settings:'Thiết lập'};
 const canOpenPage=page=>page!=='settings'||S.session?.role==='admin';
 let toastTimer;
 
@@ -82,6 +82,29 @@ function voiceMarkup(){
  <section class="panel"><div class="panel-head"><h2>Giọng được cấp</h2>${icon('mic')}</div><div class="notice ${v?'success':'warning'}">${v?`<strong>${esc(v.label)}</strong><br><code>${esc(v.code)}</code>`:'Admin chưa gán giọng cho tài khoản này.'}</div><div class="divider"></div><div class="field"><label>Văn bản cần đọc</label><textarea id="voice-text" rows="12" maxlength="5000"></textarea><small id="voice-count">0 / 5.000 ký tự</small></div><div class="field"><label>Tốc độ</label><select id="voice-speed"><option value="0.85">0,85x</option><option value="1" selected>1x tự nhiên</option><option value="1.15">1,15x</option></select></div><label class="check"><input id="tts-consent" type="checkbox">Tôi đồng ý gửi văn bản cho Ibee để tạo audio.</label><button id="generate-voice" class="purple full" ${v?'':'disabled'}>Tạo MP3 bằng Ibee</button><p id="voice-status" class="status-line"></p></section>
  <section class="panel"><div class="panel-head"><h2>Audio kết quả</h2><span class="pill">MP3</span></div><div id="audio-output" hidden class="audio-output"><audio id="tts-preview" controls></audio><div class="row between"><span id="audio-duration" class="pill green"></span><button id="download-audio" class="small">${icon('down')} Tải MP3</button></div></div><div class="notice">Không có mục clone giọng trên web này. Giọng được tạo và quản lý trong tài khoản Ibee, admin chỉ nhập mã giọng vào ClipLab.</div></section></div>`;
 }
+
+function cloneVideoMarkup(){
+ const videos=S.assets.filter(a=>a.kind==='video');
+ const selected=S.cloneJob?.sourceVideoId||S.selectedVideo||'';
+ const voice=S.session.assignedVoice;
+ return `<div class="hero"><div><span class="eyebrow">VIDEO VOICE CLONE</span><h1>Clon giọng <span class="hero-accent">Video.</span></h1><p>Giữ nguyên nội dung và timeline lời thoại, đổi sang giọng Ibee được cấp rồi đồng bộ khẩu hình.</p></div><span class="pill purple">${icon('magic')} 1 người nói · ≤ 3 phút</span></div>
+ <div class="grid2"><section class="panel"><div class="panel-head"><h2>1. Video nguồn</h2>${icon('video')}</div>
+ <div class="field"><label>Chọn video trong thư viện</label><select id="clone-source-video"><option value="">-- Chọn video --</option>${videos.map(v=>`<option value="${esc(v.id)}" ${v.id===selected?'selected':''}>${esc(v.name)} · ${clock(v.duration)}</option>`).join('')}</select></div>
+ <div id="clone-source-preview" class="camera-box small-preview">${selected&&videos.some(v=>v.id===selected)?`<video controls playsinline src="${esc(blobUrl(videos.find(v=>v.id===selected)))}"></video>`:'<div class="camera-empty"><strong>Chưa chọn video</strong><p>Thêm video ở mục Tư liệu video trước.</p></div>'}</div>
+ <div class="notice warning"><strong>Điều kiện tốt nhất:</strong> một người nói chính, tiếng Việt, không hát, không chồng tiếng, mặt nhìn thấy rõ. AI không thể bảo đảm tuyệt đối 100% biểu cảm hay khẩu hình với mọi cảnh quay.</div>
+ <label class="check"><input id="clone-consent" type="checkbox">Tôi có quyền sử dụng video, hình ảnh và giọng nói này; đồng ý gửi dữ liệu cho OpenAI, Ibee và dịch vụ lip-sync.</label>
+ <button id="clone-transcribe" class="primary full" ${selected&&voice?'':'disabled'}>Phân tích lời thoại & timeline</button><p id="clone-status" class="status-line"></p></section>
+ <section class="panel"><div class="panel-head"><h2>2. Giọng đích</h2>${icon('mic')}</div>
+ <div class="field"><label>Giọng Của Tôi</label><select id="clone-target-voice" ${voice?'':'disabled'}>${voice?`<option value="${esc(voice.code)}">${esc(voice.label)}</option>`:'<option>Admin chưa cấp giọng</option>'}</select></div>
+ <div class="notice">Module sử dụng đúng voice code Ibee đã được admin cấp. Người dùng không thể nhập voice code khác.</div>
+ <div class="divider"></div><div class="row between"><strong>Tiến trình</strong><span id="clone-stage" class="pill">${esc(S.cloneJob?.stage||'Chưa bắt đầu')}</span></div>
+ <div class="progress"><div id="clone-progress" style="width:${Number(S.cloneJob?.progress||0)}%"></div></div></section></div>
+ <section class="panel" id="clone-transcript-panel" ${S.cloneJob?.segments?.length?'':'hidden'}><div class="panel-head"><div><h2>3. Kiểm tra lời thoại</h2><p class="tiny muted status-line">Sửa sai chính tả nếu cần. Mốc thời gian được khóa để giữ timeline video.</p></div><span class="pill green" id="clone-segment-count">${S.cloneJob?.segments?.length||0} đoạn</span></div>
+ <div id="clone-transcript-list" class="stack"></div><div class="row between"><span class="tiny muted">Không đổi nội dung nếu mục tiêu là giữ nguyên lời nguồn.</span><button id="clone-synthesize" class="purple">Tạo giọng theo timeline</button></div></section>
+ <section class="panel" id="clone-render-panel" ${S.cloneJob?.alignedAudio?'':'hidden'}><div class="panel-head"><div><h2>4. Đồng bộ khẩu hình</h2><p class="tiny muted status-line">Audio mới đã được đặt đúng vị trí từng câu; bước này chỉ chỉnh khẩu hình theo audio mới.</p></div><span class="pill">Sync</span></div>
+ <audio id="clone-audio-preview" controls></audio><div class="divider"></div><button id="clone-render-video" class="primary full">Tạo video hoàn chỉnh</button><p id="clone-render-status" class="status-line"></p></section>
+ <section class="panel result" id="clone-result-panel" ${S.cloneJob?.resultUrl?'':'hidden'}><div class="panel-head"><h2>Video kết quả</h2><a id="clone-download-result" class="small" href="${esc(S.cloneJob?.resultUrl||'#')}" target="_blank" rel="noopener noreferrer">Tải video</a></div><video id="clone-result-video" controls playsinline src="${esc(S.cloneJob?.resultUrl||'')}"></video></section>`;
+}
 function settingsMarkup(){
  const admin=S.session.role==='admin';
  return `<div class="hero"><div><span class="eyebrow">CONTROL CENTER</span><h1>Thiết lập & <span class="hero-accent">phân quyền.</span></h1></div><button id="refresh-settings" class="small">${icon('refresh')} Làm mới</button></div><div class="grid2">
@@ -91,9 +114,9 @@ function settingsMarkup(){
 }
 function renderApp(){
  $('#login-screen').hidden=true;$('#app').hidden=false;
- const navItems=[['media',pages.media,'video'],['script',pages.script,'pen'],['voice',pages.voice,'mic'],['settings',pages.settings,'settings']].filter(([p])=>canOpenPage(p));
+ const navItems=[['media',pages.media,'video'],['script',pages.script,'pen'],['voice',pages.voice,'mic'],['clone',pages.clone,'magic'],['settings',pages.settings,'settings']].filter(([p])=>canOpenPage(p));
  const nav=navItems.map(([p,label,ico])=>`<button data-page="${p}" class="${p==='media'?'active':''}">${icon(ico)}<span>${label}</span></button>`).join('');
- $('#app').innerHTML=`<aside class="sidebar"><div class="brand">${logo}<div><strong>cliplab<span class="hero-accent">.</span></strong><small>IBEE CREATOR STUDIO</small></div></div><div class="workspace"><span class="avatar">${esc(S.session.username.slice(0,2).toUpperCase())}</span><div><strong>${esc(S.session.username)}</strong><p class="tiny muted">${esc(S.session.role)}</p></div></div><p class="nav-label">CHỨC NĂNG</p><nav class="nav">${nav}</nav><div class="sidebar-bottom"><div class="free-card"><span class="pill green">IBEE API</span><h3>Giọng theo phân quyền</h3><p>Admin cấp giọng cho từng tài khoản con.</p></div></div></aside><main class="main"><header class="topbar"><div class="crumb"><strong id="breadcrumb">Tư liệu video</strong></div><div class="user-badge"><span class="pill ${S.session.role==='admin'?'purple':'green'}">${esc(S.session.role)}</span><strong>${esc(S.session.username)}</strong><button id="logout" class="small">${icon('logout')}</button></div></header><div class="content"><div id="page-media">${mediaMarkup()}</div><div id="page-script" hidden>${scriptMarkup()}</div><div id="page-voice" hidden>${voiceMarkup()}</div><div id="page-settings" hidden>${settingsMarkup()}</div></div></main>`;
+ $('#app').innerHTML=`<aside class="sidebar"><div class="brand">${logo}<div><strong>cliplab<span class="hero-accent">.</span></strong><small>IBEE CREATOR STUDIO</small></div></div><div class="workspace"><span class="avatar">${esc(S.session.username.slice(0,2).toUpperCase())}</span><div><strong>${esc(S.session.username)}</strong><p class="tiny muted">${esc(S.session.role)}</p></div></div><p class="nav-label">CHỨC NĂNG</p><nav class="nav">${nav}</nav><div class="sidebar-bottom"><div class="free-card"><span class="pill green">IBEE API</span><h3>Giọng theo phân quyền</h3><p>Admin cấp giọng cho từng tài khoản con.</p></div></div></aside><main class="main"><header class="topbar"><div class="crumb"><strong id="breadcrumb">Tư liệu video</strong></div><div class="user-badge"><span class="pill ${S.session.role==='admin'?'purple':'green'}">${esc(S.session.role)}</span><strong>${esc(S.session.username)}</strong><button id="logout" class="small">${icon('logout')}</button></div></header><div class="content"><div id="page-media">${mediaMarkup()}</div><div id="page-script" hidden>${scriptMarkup()}</div><div id="page-voice" hidden>${voiceMarkup()}</div><div id="page-clone" hidden>${cloneVideoMarkup()}</div><div id="page-settings" hidden>${settingsMarkup()}</div></div></main>`;
 }
 function navigate(page){
  if(!pages[page]||!canOpenPage(page)||S.camera.recording)return;
@@ -101,7 +124,7 @@ function navigate(page){
  for(const p of Object.keys(pages))$('#page-'+p).hidden=p!==page;
  $$('.nav [data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===page));
  $('#breadcrumb').textContent=pages[page];window.scrollTo({top:0});
- if(page==='settings')renderSettings();
+ if(page==='settings')renderSettings();if(page==='clone')renderCloneState();
 }
 function videoAsset(){return S.assets.find(a=>a.id===S.selectedVideo&&a.kind==='video')}
 function requireConsent(sel){if(!$(sel).checked)throw new Error('Hãy xác nhận quyền sử dụng dữ liệu.')}
@@ -149,9 +172,168 @@ async function runAnalysis(){
  }finally{$('#analysis-progress').hidden=true;if(fileToken){try{await api('google-delete',{fileToken})}catch{}}}
 }
 function showAudio(rec){S.latestAudio=rec;$('#audio-output').hidden=false;const player=$('#tts-preview');player.pause();player.removeAttribute('src');player.src=rec.playUrl||rec.remoteUrl||blobUrl(rec);player.load();$('#audio-duration').textContent=rec.playUrl?'Sẵn sàng nghe':rec.remoteUrl?'Link Ibee tạm thời':clock(rec.duration);player.onloadedmetadata=()=>{if(Number.isFinite(player.duration)&&player.duration>0)$('#audio-duration').textContent=clock(player.duration)};player.onerror=()=>{$('#audio-duration').textContent='Không tải được audio';$('#voice-status').textContent='Không phát được audio trực tiếp. Hãy thử lại hoặc tải MP3.'}}
+
+function cloneSourceVideo(){
+ const id=S.cloneJob?.sourceVideoId||$('#clone-source-video')?.value||S.selectedVideo;
+ return S.assets.find(a=>a.id===id&&a.kind==='video')||null;
+}
+function newCloneJob(sourceVideoId=''){
+ return {id:'video-voice-clone-current',type:'video-voice-clone',sourceVideoId,stage:'Chưa bắt đầu',progress:0,segments:[],alignedAudio:null,generationId:null,resultUrl:null,assetIds:[],createdAt:Date.now(),updatedAt:Date.now()};
+}
+async function saveCloneJob(){
+ if(!S.cloneJob)return;
+ S.cloneJob.updatedAt=Date.now();
+ await put('jobs',S.cloneJob);
+}
+function setCloneProgress(stage,progress,status=''){
+ if(!S.cloneJob)S.cloneJob=newCloneJob();
+ S.cloneJob.stage=stage;S.cloneJob.progress=Math.max(0,Math.min(100,Math.round(progress)));
+ if($('#clone-stage'))$('#clone-stage').textContent=stage;
+ if($('#clone-progress'))$('#clone-progress').style.width=S.cloneJob.progress+'%';
+ if(status&&$('#clone-status'))$('#clone-status').textContent=status;
+}
+function normalizeCloneSegments(rows,duration){
+ const clean=rows.filter(x=>x&&typeof x.text==='string'&&x.text.trim()&&Number.isFinite(x.start)&&Number.isFinite(x.end)&&x.end>x.start)
+  .map((x,i)=>({id:x.id||String(i),start:Math.max(0,Number(x.start)),end:Math.min(duration,Number(x.end)),text:x.text.trim()}))
+  .filter(x=>x.end>x.start).sort((a,b)=>a.start-b.start);
+ const merged=[];
+ for(const row of clean){
+  const prev=merged.at(-1);
+  if(prev&&row.start-prev.end<0.28&&row.end-prev.start<=9){prev.end=row.end;prev.text=(prev.text+' '+row.text).trim()}
+  else merged.push({...row});
+ }
+ while(merged.length>24){
+  const next=[];for(let i=0;i<merged.length;i+=2){const a=merged[i],b=merged[i+1];next.push(b?{id:a.id,start:a.start,end:b.end,text:(a.text+' '+b.text).trim()}:a)}merged.splice(0,merged.length,...next);
+ }
+ return merged.map((x,i)=>({...x,id:'seg-'+i,start:Number(x.start.toFixed(3)),end:Number(x.end.toFixed(3))}));
+}
+function renderCloneState(){
+ const job=S.cloneJob;
+ if(!$('#page-clone'))return;
+ if($('#clone-stage'))$('#clone-stage').textContent=job?.stage||'Chưa bắt đầu';
+ if($('#clone-progress'))$('#clone-progress').style.width=Number(job?.progress||0)+'%';
+ const list=$('#clone-transcript-list');
+ if(list){
+  const segs=job?.segments||[];
+  $('#clone-transcript-panel').hidden=!segs.length;
+  $('#clone-segment-count').textContent=segs.length+' đoạn';
+  list.innerHTML=segs.map((s,i)=>`<div class="voice-card clone-segment"><div class="row between"><strong>Đoạn ${i+1}</strong><span class="pill">${clock(s.start)} → ${clock(s.end)} · ${Math.max(.1,s.end-s.start).toFixed(1)}s</span></div><textarea data-clone-segment="${i}" rows="2" maxlength="1000">${esc(s.text)}</textarea></div>`).join('');
+ }
+ const panel=$('#clone-render-panel');
+ if(panel){
+  panel.hidden=!job?.alignedAudio?.blob;
+  const player=$('#clone-audio-preview');
+  if(job?.alignedAudio?.blob&&player){player.src=blobUrl(job.alignedAudio);player.load()}
+ }
+ const result=$('#clone-result-panel');
+ if(result){
+  result.hidden=!job?.resultUrl;
+  if(job?.resultUrl){$('#clone-result-video').src=job.resultUrl;$('#clone-download-result').href=job.resultUrl}
+ }
+}
+async function transcribeCloneVideo(){
+ ensureProvider('openai');requireConsent('#clone-consent');
+ const source=cloneSourceVideo();if(!source)throw new Error('Hãy chọn video nguồn.');
+ if(!S.session.assignedVoice)throw new Error('Admin chưa cấp giọng cho tài khoản này.');
+ S.cloneJob=newCloneJob(source.id);setCloneProgress('Tách lời thoại',5,'Đang tách audio khỏi video...');
+ const extracted=await extractSpeechChunks(source.blob,40,(n,total)=>setCloneProgress('Tách lời thoại',5+Math.round(n/total*10)));
+ const rows=[];
+ for(let i=0;i<extracted.chunks.length;i++){
+  const chunk=extracted.chunks[i];
+  setCloneProgress('Nhận dạng lời thoại',15+Math.round(i/extracted.chunks.length*35),`Đang nhận dạng đoạn ${i+1}/${extracted.chunks.length}...`);
+  const data=await api('clone-transcribe',{audioBase64:await toBase64(chunk.blob),offset:chunk.offset,duration:chunk.duration,consent:true});
+  rows.push(...(data.segments||[]));
+ }
+ const segments=normalizeCloneSegments(rows,source.duration);
+ if(!segments.length)throw new Error('Không nhận thấy lời thoại tiếng Việt rõ ràng trong video.');
+ S.cloneJob.segments=segments;S.cloneJob.sourceDuration=source.duration;S.cloneJob.alignedAudio=null;S.cloneJob.resultUrl=null;S.cloneJob.assetIds=[];
+ setCloneProgress('Chờ kiểm tra lời thoại',50,`Đã nhận dạng ${segments.length} đoạn. Hãy kiểm tra nội dung trước khi tạo giọng.`);
+ await saveCloneJob();renderCloneState();
+}
+async function waitIbee(token,label){
+ let state=null;
+ for(let i=0;i<100;i++){
+  await pause(i<10?1200:2000);
+  state=await api('tts-status',{token});
+  if(state.failed)throw new Error(state.error||'Ibee tạo audio thất bại.');
+  if(state.ready)return state;
+  if($('#clone-status'))$('#clone-status').textContent=`${label}: Ibee đang xử lý...`;
+ }
+ throw new Error('Ibee xử lý quá lâu. Hãy thử lại tác vụ sau.');
+}
+async function fetchIbeeAudio(token){
+ const r=await fetch(`/api/index?action=tts-audio&token=${encodeURIComponent(token)}`,{credentials:'same-origin',signal:AbortSignal.timeout(65000)});
+ if(!r.ok){let d={};try{d=await r.json()}catch{}throw new Error(d.error||'Không tải được audio Ibee.')}
+ return r.blob();
+}
+async function synthesizeCloneSegment(seg,index,total){
+ const target=Math.max(.45,seg.end-seg.start);let speed=1,last=null;
+ for(let attempt=0;attempt<2;attempt++){
+  setCloneProgress('Tạo giọng Ibee',52+Math.round((index+(attempt*.35))/total*30),`Đoạn ${index+1}/${total}: tạo giọng ${speed.toFixed(2)}x...`);
+  const sub=await api('tts-submit',{text:seg.text,speed,consent:true});
+  await waitIbee(sub.token,`Đoạn ${index+1}/${total}`);
+  const blob=await fetchIbeeAudio(sub.token);const duration=await mediaDuration(blob,'audio');
+  last={blob,duration,speed};
+  const ratio=duration/target;
+  if(attempt===0&&(ratio>1.04||ratio<0.82)){
+   const next=Math.max(.25,Math.min(1.9,speed*ratio));
+   if(Math.abs(next-speed)>.04){speed=next;continue}
+  }
+  break;
+ }
+ if(last.duration>target*1.08)throw new Error(`Đoạn ${index+1} dài ${last.duration.toFixed(1)}s nhưng khung chỉ ${target.toFixed(1)}s. Hãy kiểm tra transcript hoặc video nguồn.`);
+ return {start:seg.start,end:seg.end,text:seg.text,blob:last.blob,duration:last.duration,speed:last.speed};
+}
+async function synthesizeCloneTimeline(){
+ ensureProvider('vbee');requireConsent('#clone-consent');
+ if(!S.cloneJob?.segments?.length)throw new Error('Hãy phân tích lời thoại trước.');
+ const source=cloneSourceVideo();if(!source)throw new Error('Video nguồn không còn trong thư viện.');
+ $$('#clone-transcript-list [data-clone-segment]').forEach(el=>{const i=Number(el.dataset.cloneSegment);if(S.cloneJob.segments[i])S.cloneJob.segments[i].text=el.value.trim()});
+ if(S.cloneJob.segments.some(s=>!s.text))throw new Error('Không được để trống lời thoại.');
+ await saveCloneJob();
+ const audio=[];
+ for(let i=0;i<S.cloneJob.segments.length;i++)audio.push(await synthesizeCloneSegment(S.cloneJob.segments[i],i,S.cloneJob.segments.length));
+ setCloneProgress('Dựng timeline audio',84,'Đang đặt từng câu vào đúng mốc thời gian...');
+ const aligned=await composeAlignedSpeech(audio,source.duration,(n,total)=>setCloneProgress('Dựng timeline audio',84+Math.round(n/total*6)));
+ S.cloneJob.alignedAudio={id:'clone-aligned-'+Date.now(),kind:'audio',blob:aligned.blob,duration:aligned.duration,createdAt:Date.now()};
+ S.cloneJob.segmentAudio=[];S.cloneJob.resultUrl=null;
+ setCloneProgress('Sẵn sàng lip-sync',90,'Audio mới đã khớp timeline. Nghe thử trước khi tạo video.');
+ await saveCloneJob();renderCloneState();
+}
+async function uploadSyncAsset(blob,name,type,contentType){
+ const presign=await api('clone-upload-url',{fileName:name,contentType,size:blob.size,consent:true});
+ const putResult=await fetch(presign.uploadUrl,{method:'PUT',headers:{'Content-Type':contentType},body:blob,signal:AbortSignal.timeout(180000)});
+ if(!putResult.ok)throw new Error(`Upload media lip-sync thất bại (HTTP ${putResult.status}).`);
+ return api('clone-register-asset',{url:presign.url,type,name,consent:true});
+}
+async function renderCloneVideo(){
+ ensureProvider('sync');requireConsent('#clone-consent');
+ const source=cloneSourceVideo();if(!source||!S.cloneJob?.alignedAudio?.blob)throw new Error('Cần video nguồn và audio timeline.');
+ setCloneProgress('Upload video',91,'Đang tải video nguồn lên dịch vụ lip-sync...');
+ let videoType=source.blob.type||'video/mp4';if(videoType==='video/x-m4v')videoType='video/mp4';
+ const video=await uploadSyncAsset(source.blob,source.name||'source-video.mp4','VIDEO',videoType);
+ S.cloneJob.assetIds=[video.id];await saveCloneJob();
+ setCloneProgress('Upload audio',93,'Đang tải audio mới...');
+ const audio=await uploadSyncAsset(S.cloneJob.alignedAudio.blob,'ibee-aligned.wav','AUDIO','audio/wav');
+ S.cloneJob.assetIds.push(audio.id);await saveCloneJob();
+ setCloneProgress('Lip-sync',95,'Đang gửi tác vụ đồng bộ khẩu hình...');
+ const job=await api('clone-submit-video',{videoAssetId:video.id,audioAssetId:audio.id,consent:true});
+ S.cloneJob.generationId=job.id;await saveCloneJob();
+ let state=null;
+ for(let i=0;i<180;i++){
+  await pause(i<10?3000:5000);state=await api('clone-video-status',{id:job.id});
+  if(state.failed)throw new Error(state.error||'Tạo video lip-sync thất bại.');
+  if(state.ready)break;
+  setCloneProgress('Lip-sync',95+Math.min(4,Math.round(i/45)),`Đang đồng bộ khẩu hình... ${i+1}`);
+ }
+ if(!state?.ready||!state.outputUrl)throw new Error('Lip-sync chưa hoàn tất trong thời gian chờ. Tác vụ vẫn có thể đang xử lý.');
+ S.cloneJob.resultUrl=state.outputUrl;setCloneProgress('Hoàn tất',100,'Video đã hoàn tất. Hãy xem lại toàn bộ trước khi sử dụng.');
+ await saveCloneJob();renderCloneState();
+ try{await api('clone-cleanup',{assetIds:S.cloneJob.assetIds});S.cloneJob.assetIds=[];await saveCloneJob()}catch{}
+}
 function renderSettings(){
  const cfg=S.session;
- const defs=[['vbee','Ibee AIVoice','Cấu hình API phía máy chủ'],['google','Google Gemini','GOOGLE_API_KEY'],['deepseek','DeepSeek','DEEPSEEK_API_KEY'],['openai','OpenAI','OPENAI_API_KEY']];
+ const defs=[['vbee','Ibee AIVoice','Cấu hình API phía máy chủ'],['sync','Lip-sync Video','SYNC_API_KEY'],['google','Google Gemini','GOOGLE_API_KEY'],['deepseek','DeepSeek','DEEPSEEK_API_KEY'],['openai','OpenAI','OPENAI_API_KEY']];
  $('#provider-list').innerHTML=defs.map(([id,n,e])=>`<div class="provider"><h3>${n}</h3><span class="pill ${cfg.providers[id]?'green':''}">${cfg.providers[id]?'Đã cấu hình':'Chưa cấu hình'}</span><code>${e}</code></div>`).join('');
  $('#limiter-notice').textContent=cfg.limiter==='redis'?'Redis đã kết nối: có thể lưu phân quyền giọng cho nhiều tài khoản.':'Chưa có Upstash Redis: tạo nội dung đa tài khoản và gán giọng sẽ bị chặn để tránh vượt hạn mức.';
  $('#limiter-notice').className=`notice ${cfg.limiter==='redis'?'success':'warning'}`;
@@ -167,6 +349,12 @@ function renderAdmin(){
  $('#admin-users').innerHTML=(S.adminState.users||[]).map(u=>`<div class="voice-card"><div class="row between"><strong>${esc(u.username)}</strong><span class="pill">${esc(u.role)}</span></div><div class="field"><select data-assign-user="${esc(u.username)}"><option value="">-- Chưa cấp giọng --</option>${voices.map(v=>`<option value="${esc(v.code)}" ${u.voiceCode===v.code?'selected':''}>${esc(v.label)}</option>`).join('')}</select></div></div>`).join('');
 }
 function closeCamera(){S.camera.close();const p=$('#camera-video');if(!p)return;p.srcObject=null;$('#open-camera').disabled=false;$('#start-record').disabled=true;$('#close-camera').hidden=true;if(!videoAsset())$('#camera-empty').hidden=false}
+function bindCloneEvents(){
+ const transcribe=$('#clone-transcribe');if(transcribe)transcribe.onclick=()=>busy(transcribe,transcribeCloneVideo,'#clone-status');
+ const synth=$('#clone-synthesize');if(synth)synth.onclick=()=>busy(synth,synthesizeCloneTimeline,'#clone-status');
+ const render=$('#clone-render-video');if(render)render.onclick=()=>busy(render,renderCloneVideo,'#clone-render-status');
+ const source=$('#clone-source-video');if(source)source.onchange=async e=>{const id=e.target.value;if(!S.cloneJob||S.cloneJob.sourceVideoId!==id){S.cloneJob=newCloneJob(id);await saveCloneJob();const page=$('#page-clone');page.innerHTML=cloneVideoMarkup();bindCloneEvents();renderCloneState()}};
+}
 function bindEvents(){
  $('#app').onclick=e=>{
   const b=e.target.closest('button');if(!b)return;
@@ -180,6 +368,7 @@ function bindEvents(){
  $('#start-record').onclick=()=>busy($('#start-record'),async()=>{$('#stop-record').hidden=false;$('#record-time').hidden=false;try{const rr=await S.camera.start(179,t=>$('#record-time').textContent='REC '+clock(t));const ext=rr.blob.type.includes('mp4')?'mp4':'webm';await ingestVideo(new File([rr.blob],`tu-lieu-${Date.now()}.${ext}`,{type:rr.blob.type}),rr.duration)}finally{$('#stop-record').hidden=true;$('#record-time').hidden=true;closeCamera()}});
  $('#stop-record').onclick=()=>S.camera.stop();$('#close-camera').onclick=()=>{closeCamera();selectVideo(S.selectedVideo)};
  $('#choose-video').onclick=()=>$('#video-file').click();$('#video-file').onchange=e=>{const f=e.target.files[0];e.target.value='';if(f)busy($('#choose-video'),()=>ingestVideo(f),'#camera-status')};
+ bindCloneEvents();
  $$('input[name="analysis-mode"]').forEach(x=>x.onchange=()=>$('#frame-field').hidden=x.value!=='frames');
  $('#analyze-btn').onclick=()=>busy($('#analyze-btn'),runAnalysis,'#analysis-status');
  $('#analysis-to-script').onclick=()=>{$('#script-editor').value=$('#analysis-script').value;saveDraft();updateCounts();navigate('script')};
@@ -191,16 +380,16 @@ function bindEvents(){
  $('#generate-voice').onclick=()=>busy($('#generate-voice'),async()=>{ensureProvider('vbee');requireConsent('#tts-consent');$('#voice-status').textContent='Đang gửi nội dung sang Ibee...';const sub=await api('tts-submit',{text:$('#voice-text').value,speed:Number($('#voice-speed').value),consent:true});let state=null;for(let i=0;i<120;i++){await pause(i<8?1500:2500);state=await api('tts-status',{token:sub.token});if(state.failed)throw new Error(state.error||'Ibee tạo audio thất bại.');if(state.ready)break;$('#voice-status').textContent=`Ibee đang xử lý... ${i+1}/120`}if(!state?.ready||!state.audioLink)throw new Error('Ibee xử lý lâu hơn dự kiến. Hãy thử lại sau ít phút.');const playUrl=`/api/index?action=tts-audio&token=${encodeURIComponent(sub.token)}`;const rec={id:crypto.randomUUID(),name:`ibee-${Date.now()}.mp3`,kind:'audio',playUrl,remoteUrl:state.audioLink,source:'ibee',createdAt:Date.now()};showAudio(rec);$('#voice-status').textContent=`Đã tạo bằng ${sub.voice.label}. Bấm Play để nghe trực tiếp hoặc Tải MP3.`},'#voice-status');
  $('#download-audio').onclick=()=>{if(!S.latestAudio)return;if(S.latestAudio.remoteUrl){const a=document.createElement('a');a.href=S.latestAudio.remoteUrl;a.target='_blank';a.rel='noopener noreferrer';a.download=S.latestAudio.name||'vbee-audio.mp3';document.body.appendChild(a);a.click();a.remove()}else if(S.latestAudio.blob)download(S.latestAudio.blob,S.latestAudio.name)};
  $('#refresh-settings').onclick=()=>busy($('#refresh-settings'),async()=>{S.session=await api('session');renderSettings();toast('Đã làm mới cấu hình.')});
- $('#clear-local').onclick=()=>busy($('#clear-local'),async()=>{if(!confirm('Xóa toàn bộ video/audio lưu trên trình duyệt của tài khoản này?'))return;await clear('assets');S.assets=[];S.selectedVideo=null;S.latestAudio=null;renderVideoLibrary();selectVideo(null);$('#audio-output')?.setAttribute('hidden','')});
+ $('#clear-local').onclick=()=>busy($('#clear-local'),async()=>{if(!confirm('Xóa toàn bộ video/audio/job lưu trên trình duyệt của tài khoản này?'))return;await clear('assets');await clear('jobs');S.assets=[];S.selectedVideo=null;S.latestAudio=null;S.cloneJob=newCloneJob();renderVideoLibrary();selectVideo(null);renderCloneState();$('#audio-output')?.setAttribute('hidden','')});
  if($('#admin-add-voice'))$('#admin-add-voice').onclick=()=>busy($('#admin-add-voice'),async()=>{await api('admin-add-voice',{label:$('#admin-voice-label').value,code:$('#admin-voice-code').value});$('#admin-voice-label').value='';$('#admin-voice-code').value='';await loadAdminState();toast('Đã thêm giọng Ibee chuyên nghiệp.')});
  $('#logout').onclick=()=>busy($('#logout'),async()=>{closeCamera();await api('logout',{});releaseUrls();S.session=null;$('#app').innerHTML='';loginScreen()});
 }
 async function boot(){
- S.session=await api('session');await initDB(S.session.username);S.assets=await all('assets');S.selectedVideo=S.assets.find(a=>a.kind==='video')?.id||null;S.page='media';
+ S.session=await api('session');await initDB(S.session.username);S.assets=await all('assets');S.selectedVideo=S.assets.find(a=>a.kind==='video')?.id||null;const jobs=await all('jobs');S.cloneJob=jobs.find(j=>j.type==='video-voice-clone')||newCloneJob(S.selectedVideo||'');S.page='media';
  renderApp();bindEvents();
  try{const d=JSON.parse(localStorage.getItem(draftKey())||'{}');$('#script-prompt').value=d.prompt||'';$('#script-editor').value=d.script||'';$('#voice-text').value=d.voice||'';$('#analysis-brief').value=d.brief||''}catch{}
  if(!S.session.providers.deepseek&&S.session.providers.openai)$('#text-provider').value='openai';
- renderVideoLibrary();selectVideo(S.selectedVideo);if(S.session.role==='admin')renderSettings();updateCounts();
+ renderVideoLibrary();selectVideo(S.selectedVideo);renderCloneState();if(S.session.role==='admin')renderSettings();updateCounts();
  const latest=S.assets.filter(a=>a.kind==='audio').sort((a,b)=>b.createdAt-a.createdAt)[0];if(latest)showAudio(latest);
 }
 loginScreen();

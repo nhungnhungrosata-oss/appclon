@@ -76,3 +76,20 @@ test('member accounts cannot see or navigate to Settings',async()=>{
   assert.match(source,/!canOpenPage\(page\)/);
   assert.match(source,/if\(S\.session\.role==='admin'\)renderSettings\(\)/);
 });
+
+
+test('video voice clone module is integrated without FFmpeg or a new frontend framework',async()=>{
+  const frontend=await readFile('public/app.js','utf8');
+  const media=await readFile('public/media.js','utf8');
+  const api=await readFile('api/index.js','utf8');
+  const pkg=JSON.parse(await readFile('package.json','utf8'));
+  assert.match(frontend,/Clon giọng Video/);
+  assert.match(frontend,/clone-transcribe/);
+  assert.match(frontend,/clone-submit-video/);
+  assert.match(media,/extractSpeechChunks/);
+  assert.match(media,/composeAlignedSpeech/);
+  assert.match(api,/clone-register-asset/);
+  assert.match(api,/clone-video-status/);
+  assert.deepEqual(pkg.dependencies||{},{});
+  assert.doesNotMatch(JSON.stringify(pkg),/ffmpeg/i);
+});

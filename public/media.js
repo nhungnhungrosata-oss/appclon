@@ -107,6 +107,80 @@ export function toBase64(blob) {
     const reader = new FileReader(); reader.onload = () => resolve(reader.result.split(',')[1]); reader.onerror = reject; reader.readAsDataURL(blob);
   });
 }
+
+function wavMono(samples, sampleRate) {
+  const buffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buffer);
+  const str = (offset, value) => [...value].forEach((ch, n) => view.setUint8(offset + n, ch.charCodeAt(0)));
+  str(0, 'RIFF'); view.setUint32(4, 36 + samples.length * 2, true); str(8, 'WAVE'); str(12, 'fmt ');
+  view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true); view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true); view.setUint16(34, 16, true); str(36, 'data'); view.setUint32(40, samples.length * 2, true);
+  for (let n = 0; n < samples.length; n++) {
+    const v = Math.max(-1, Math.min(1, samples[n]));
+    view.setInt16(44 + n * 2, Math.round(v * (v < 0 ? 32768 : 32767)), true);
+  }
+  return new Blob([buffer], { type: 'audio/wav' });
+}
+
+export async function extractSpeechChunks(mediaBlob, chunkSeconds = 40, progress = () => {}) {
+  if (!(mediaBlob instanceof Blob) || mediaBlob.size < 100) throw new Error('Video nguồn không hợp lệ.');
+  const Audio = window.AudioContext || window.webkitAudioContext;
+  if (!Audio || !window.OfflineAudioContext) throw new Error('Trình duyệt chưa hỗ trợ xử lý audio. Hãy dùng Chrome/Edge mới.');
+  const audio = new Audio();
+  try {
+    let source;
+    try { source = await audio.decodeAudioData(await mediaBlob.arrayBuffer()); }
+    catch { throw new Error('Không tách được tiếng từ video. Hãy dùng MP4 H.264 + AAC hoặc WebM có audio.'); }
+    if (!Number.isFinite(source.duration) || source.duration < 0.2 || source.duration > 180.5) throw new Error('Video cần có tiếng và dài tối đa 3 phút.');
+    const sampleRate = 16000;
+    const frames = Math.max(1, Math.ceil(source.duration * sampleRate));
+    const offline = new OfflineAudioContext(1, frames, sampleRate);
+    const node = offline.createBufferSource(); node.buffer = source; node.connect(offline.destination); node.start();
+    const rendered = await offline.startRendering();
+    const samples = rendered.getChannelData(0);
+    const perChunk = Math.floor(chunkSeconds * sampleRate);
+    const chunks = [];
+    for (let start = 0, index = 0; start < samples.length; start += perChunk, index++) {
+      const end = Math.min(samples.length, start + perChunk);
+      const copy = new Float32Array(end - start); copy.set(samples.subarray(start, end));
+      chunks.push({
+        index,
+        offset: Number((start / sampleRate).toFixed(3)),
+        duration: Number(((end - start) / sampleRate).toFixed(3)),
+        blob: wavMono(copy, sampleRate)
+      });
+      progress(end, samples.length);
+    }
+    return { chunks, duration: source.duration };
+  } finally { await audio.close(); }
+}
+
+export async function composeAlignedSpeech(items, totalDuration, progress = () => {}) {
+  if (!Array.isArray(items) || !items.length) throw new Error('Chưa có audio giọng mới.');
+  if (!Number.isFinite(totalDuration) || totalDuration <= 0 || totalDuration > 180.5) throw new Error('Thời lượng video không hợp lệ.');
+  const Audio = window.AudioContext || window.webkitAudioContext;
+  if (!Audio || !window.OfflineAudioContext) throw new Error('Trình duyệt chưa hỗ trợ dựng audio.');
+  const decode = new Audio();
+  try {
+    const sampleRate = 44100;
+    const offline = new OfflineAudioContext(1, Math.ceil(totalDuration * sampleRate), sampleRate);
+    for (let index = 0; index < items.length; index++) {
+      const item = items[index];
+      if (!(item.blob instanceof Blob) || !Number.isFinite(item.start) || item.start < 0 || item.start >= totalDuration) throw new Error('Timeline audio không hợp lệ.');
+      const buffer = await decode.decodeAudioData(await item.blob.arrayBuffer());
+      const node = offline.createBufferSource(); node.buffer = buffer; node.connect(offline.destination); node.start(item.start);
+      progress(index + 1, items.length);
+    }
+    const result = await offline.startRendering();
+    const samples = new Float32Array(result.length); samples.set(result.getChannelData(0));
+    return { blob: wavMono(samples, sampleRate), duration: totalDuration, sampleRate };
+  } finally { await decode.close(); }
+}
+
+export async function mediaDuration(blob, kind = 'audio') {
+  return durationOf(blob, kind);
+}
 export class Recorder {
   stream = null; recorder = null; recording = false;
   async open({ video = true, facing = 'user', portrait = false, audio = true } = {}) {
