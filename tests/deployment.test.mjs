@@ -78,18 +78,21 @@ test('member accounts cannot see or navigate to Settings',async()=>{
 });
 
 
-test('video voice clone module is integrated without FFmpeg or a new frontend framework',async()=>{
+test('video voice clone replaces audio locally without lip-sync provider or FFmpeg',async()=>{
   const frontend=await readFile('public/app.js','utf8');
   const media=await readFile('public/media.js','utf8');
   const api=await readFile('api/index.js','utf8');
+  const env=await readFile('.env.example','utf8');
   const pkg=JSON.parse(await readFile('package.json','utf8'));
   assert.match(frontend,/Clon giọng Video/);
   assert.match(frontend,/clone-transcribe/);
-  assert.match(frontend,/clone-submit-video/);
-  assert.match(media,/extractSpeechChunks/);
-  assert.match(media,/composeAlignedSpeech/);
-  assert.match(api,/clone-register-asset/);
-  assert.match(api,/clone-video-status/);
+  assert.match(frontend,/replaceVideoAudio/);
+  assert.match(media,/export async function replaceVideoAudio/);
+  assert.match(media,/MediaRecorder/);
+  assert.match(media,/captureStream/);
+  assert.doesNotMatch(frontend,/clone-submit-video|clone-register-asset|SYNC_API_KEY|lipsync-2|lip-sync/i);
+  assert.doesNotMatch(api,/clone-submit-video|clone-register-asset|SYNC_API_KEY/);
+  assert.doesNotMatch(env,/SYNC_API_KEY|SYNC_LIPSYNC_MODEL/);
   assert.deepEqual(pkg.dependencies||{},{});
   assert.doesNotMatch(JSON.stringify(pkg),/ffmpeg/i);
 });
