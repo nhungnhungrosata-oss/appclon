@@ -1,7 +1,7 @@
 name: Verify deployment
 on:
   push:
-    branches: [main, fix/restore-vercel-deployment]
+    branches: [main, feature/vbee-multiuser]
   pull_request:
   workflow_dispatch:
 permissions:

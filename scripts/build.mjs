@@ -1,6 +1,6 @@
 import { access, readdir, readFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
-for (const file of ['public/index.html', 'public/styles.css', 'public/app.js', 'public/media.js', 'public/fish-handoff.js', 'api/index.js']) await access(file);
+for (const file of ['public/index.html', 'public/styles.css', 'public/app.js', 'public/media.js', 'api/index.js']) await access(file);
 for (const dir of ['api', 'lib', 'public', 'scripts']) {
   for (const file of await readdir(dir)) if (/\.(mjs|js)$/.test(file)) execFileSync(process.execPath, ['--check', `${dir}/${file}`], { stdio: 'inherit' });
 }

@@ -1,68 +1,74 @@
-# ClipLab - AI Creator Studio
+# ClipLab — Vbee Multi-user Studio
 
-Ứng dụng giao diện tiếng Việt, chạy trên Node.js 22 và Vercel. Quay/tải tư liệu, phân tích hình ảnh video bằng Google, viết kịch bản với DeepSeek/OpenAI, tạo giọng bằng Fish và chuẩn bị tư liệu cho Fish Creative Lip Sync.
+ClipLab chạy Node.js 22 + Vercel. Chức năng hiện tại:
 
-## Triển khai Vercel
+- quay hoặc tải video tư liệu;
+- phân tích video bằng Google Gemini;
+- viết kịch bản bằng DeepSeek hoặc OpenAI;
+- tạo MP3 bằng Vbee AIVoice;
+- admin quản lý danh sách giọng **Nhân bản chuyên nghiệp** và gán giọng cho từng tài khoản con.
 
-Import repository này, chọn nhánh `main`. Các file `package.json`, `api/`, `public/`, `lib/`, `scripts/` phải nằm ngay ở Root Directory của project.
+Fish Voice và Fish Lip Sync đã được gỡ khỏi ứng dụng.
 
-- Framework Preset: **Other**.
-- Root Directory: để trống (gốc repository).
-- Node.js: **22.x**.
-- Install Command: `npm ci --ignore-scripts`.
-- Build Command: `npm run build`.
-- Output Directory: `public`.
+## Tài khoản
 
-`vercel.json` đã chứa cấu hình build và API. Không chuyển sang một trang HTML tĩnh hoặc bỏ thư mục `api` để che lỗi build.
+Admin đăng nhập bằng `admin` + `APP_PASSWORD` trên Vercel.
 
-### Biến môi trường
+Repo có sẵn 10 tài khoản con `user01` đến `user10`. Chỉ password hash được commit; mật khẩu gốc được bàn giao riêng cho chủ dự án.
 
-Đặt các biến trong Vercel Settings > Environment Variables, không đưa key thật vào GitHub:
+Tài khoản con không được nhập hoặc tự thay đổi Vbee voice code. Mỗi tài khoản chỉ nhận giọng admin gán.
 
-| Biến | Yêu cầu |
-| --- | --- |
-| `APP_PASSWORD` | Mật khẩu admin riêng, ít nhất 12 ký tự. |
-| `SESSION_SECRET` | Chuỗi ngẫu nhiên riêng, ít nhất 32 ký tự. |
-| `FISH_API_KEY` | Cần khi tạo giọng. |
-| `GOOGLE_API_KEY` | Cần khi phân tích video. |
-| `DEEPSEEK_API_KEY` | Cần khi viết bằng DeepSeek. |
-| `OPENAI_API_KEY` | Cần khi viết bằng OpenAI. |
+## Biến môi trường Vercel
 
-Không cần `FAL_KEY`. Thiếu key AI không làm build thất bại; chức năng tương ứng sẽ báo thiếu cấu hình. Sau khi đổi biến môi trường phải redeploy; chọn đúng Production/Preview tương ứng. Không gửi key hoặc mật khẩu trong issue/log.
+Bắt buộc cho đăng nhập:
 
-Đăng nhập bằng tên `admin` và giá trị `APP_PASSWORD` đã cấu hình. Không có mật khẩu chung hoặc mật khẩu mặc định trong mã nguồn.
+- `APP_PASSWORD` — tối thiểu 12 ký tự.
+- `SESSION_SECRET` — tối thiểu 32 ký tự.
 
-## Kiểm tra sau deploy
+Vbee:
 
-Mở `/api/index?action=health` trên tên miền đã deploy. Kết quả đúng là HTTP 200 với `{"ok":true,"service":"cliplab"}`. Route này chỉ kiểm tra backend còn chạy, không xác nhận API key/số dư của nhà cung cấp.
+- `VBEE_APP_ID`
+- `VBEE_ACCESS_TOKEN`
+- `VBEE_API_BASE_URL` — mặc định `https://vbee.vn/api/v1`; có thể đổi theo endpoint của ứng dụng Vbee.
 
-Trang chủ phải hiện màn hình đăng nhập, tải được `app.js`, `styles.css`, `media.js`, `fish-handoff.js`. `/api/index?action=session` trả HTTP 401 khi chưa đăng nhập là đúng thiết kế.
+Các AI khác:
 
-## Chạy trên máy
+- `GOOGLE_API_KEY`
+- `DEEPSEEK_API_KEY`
+- `OPENAI_API_KEY`
+
+Đa tài khoản cần Upstash Redis:
+
+- `UPSTASH_REDIS_REST_URL`
+- `UPSTASH_REDIS_REST_TOKEN`
+
+Redis được dùng để lưu danh sách voice code và phân quyền giọng theo tài khoản, đồng thời chia sẻ quota giữa các Vercel Functions.
+
+## Giọng Nhân bản chuyên nghiệp Vbee
+
+ClipLab không tạo/clone giọng. Hãy tạo giọng Nhân bản chuyên nghiệp trong tài khoản Vbee trước. Sau đó admin vào **Thiết lập → Quản trị**, nhập tên hiển thị và voice code đã copy từ Vbee, rồi gán cho từng tài khoản.
+
+Ứng dụng đánh dấu danh sách do admin nhập là `professional_clone`. Vì API key thật không nằm trong CI, build không thể tự xác minh cấp độ của voice code; admin phải chỉ thêm đúng giọng Nhân bản chuyên nghiệp mà tài khoản Vbee có quyền sử dụng.
+
+## Deploy
+
+Vercel:
+- Framework Preset: Other
+- Node.js: 22.x
+- Install: `npm ci --ignore-scripts`
+- Build: `npm run build`
+- Output: `public`
+
+Sau khi đổi Environment Variables phải Redeploy.
+
+Health check: `/api/index?action=health` phải trả HTTP 200 và `{"ok":true,"service":"cliplab"}`.
+
+## Test
 
 ```sh
 npm ci --ignore-scripts
-npm run setup
-npm run dev
-```
-
-Lệnh setup tạo cấu hình đăng nhập cục bộ; lưu mật khẩu rồi thêm key vào `.env.local`. File này được bỏ qua bởi Git.
-
-## Kiểm thử
-
-```sh
 npm run build
 npm test
 ```
 
-Build kiểm tra file giao diện, cú pháp JavaScript và import backend thật. Bộ 41 kiểm thử bao gồm xác thực, giới hạn body, nhà cung cấp mô phỏng, Fish handoff, tài nguyên frontend và health endpoint. Workflow `Verify deployment` chạy lại trên push/PR. Kiểm thử mô phỏng không thay thế việc kiểm tra Fish/Google/OpenAI/DeepSeek bằng tài khoản thật.
-
-## Lip Sync
-
-Bản này không gọi fal. ClipLab xuất gói tư liệu để mở Fish Creative, rồi nhập video kết quả về thư viện. Chưa có tích hợp API Lip Sync tự động của Fish trong ứng dụng. Ưu đãi tạo giọng không đồng nghĩa Lip Sync miễn phí; kiểm tra credit và điều kiện hiện hành trên Fish trước khi tạo.
-
-Tư liệu lưu cục bộ trong trình duyệt, không tự đồng bộ giữa thiết bị. Chỉ sử dụng hình ảnh/giọng có quyền sử dụng.
-
-## Bản sửa triển khai 19/09/2026
-
-Khôi phục bốn file frontend và bộ test bị thiếu, sửa dấu escape làm hỏng cú pháp trong hai file backend, thêm health check, kiểm tra import API trong build, và loại bỏ bootstrap archive chưa hoàn tất. Giữ nguyên các tính năng v1.1; không đưa bí mật hoặc cơ chế bỏ qua xác thực vào repository.
+CI không gọi API Vbee/Google/OpenAI/DeepSeek thật nên không phát sinh phí.
