@@ -22,7 +22,7 @@ test('health is public and session is protected',async()=>{
 });
 test('admin login exposes Vbee provider state without secrets',async()=>{
   const r=await req('login',{username:'admin',password:process.env.APP_PASSWORD}); assert.equal(r.status,200); cookie=r.headers.get('set-cookie').split(';')[0];
-  const d=await (await req('session')).json(); assert.equal(d.username,'admin'); assert.equal(d.role,'admin'); assert.ok('vbee' in d.providers); assert.ok('sync' in d.providers); assert.ok(!('fish' in d.providers)); assert.ok(!('lipSync' in d));
+  const d=await (await req('session')).json(); assert.equal(d.username,'admin'); assert.equal(d.role,'admin'); assert.ok('vbee' in d.providers); assert.ok(!('sync' in d.providers)); assert.ok(!('fish' in d.providers)); assert.ok(!('lipSync' in d));
   assert.ok(!JSON.stringify(d).includes(process.env.SESSION_SECRET));
 });
 test('admin state lists ten children plus admin',async()=>{
