@@ -1,4 +1,4 @@
-import { authenticate, users, verifyPassword, safeEqual, sessionCookie, checkOrigin, readBody, readJson, text, json, publicError, sha, fail, secret } from '../lib/core.mjs';
+import { authenticate, users, verifyPassword, safeEqual, sessionCookie, checkOrigin, readBody, readJson, text, json, publicError, sha, fail, secret, keyHint } from '../lib/core.mjs';
 import { hasRedis, limit, get, setPersistent } from '../lib/store.mjs';
 import { models, generateText, vbeeSubmit, vbeeStatus, vbeeAudio, assignedVoice, analyze, googleStart, googleChunk, googleFile } from '../lib/providers.mjs';
 import { transcribeCloneChunk } from '../lib/video-clone.mjs';
@@ -121,7 +121,7 @@ export default async function handler(req, res) {
       for (const [username, record] of Object.entries(users())) {
         list.push({ username, role: record.role || 'member', voiceCode: await get(`voice-assignment:${username}`) || '' });
       }
-      return json(res, { voices, users: list, redis: hasRedis() });
+      return json(res, { voices, users: list, redis: hasRedis(), diagnostics: { openai: keyHint('OPENAI_API_KEY') } });
     }
 
     if (action === 'admin-add-voice') {
