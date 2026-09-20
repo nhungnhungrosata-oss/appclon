@@ -25,7 +25,8 @@ const logo='<img class="logo-icon" src="/favicon.svg" alt="">';
 const clock=s=>`${String(Math.floor((s||0)/60)).padStart(2,'0')}:${String(Math.floor((s||0)%60)).padStart(2,'0')}`;
 const size=b=>(b/1024/1024).toFixed(1)+' MB';
 const S={session:null,page:'media',assets:[],selectedVideo:null,camera:new Recorder(),progress:new Set(),latestAudio:null,adminState:null};
-const pages={media:'Tư liệu video',script:'Viết kịch bản',voice:'Tên Giọng của Tôi',settings:'Thiết lập'};
+const pages={media:'Tư liệu video',script:'Viết kịch bản',voice:'Giọng Của Tôi',settings:'Thiết lập'};
+const canOpenPage=page=>page!=='settings'||S.session?.role==='admin';
 let toastTimer;
 
 function toast(message,error=false){
@@ -90,11 +91,12 @@ function settingsMarkup(){
 }
 function renderApp(){
  $('#login-screen').hidden=true;$('#app').hidden=false;
- const nav=Object.entries(pages).map(([p,label],i)=>`<button data-page="${p}" class="${p==='media'?'active':''}">${icon(['video','pen','mic','settings'][i])}<span>${label}</span></button>`).join('');
+ const navItems=[['media',pages.media,'video'],['script',pages.script,'pen'],['voice',pages.voice,'mic'],['settings',pages.settings,'settings']].filter(([p])=>canOpenPage(p));
+ const nav=navItems.map(([p,label,ico])=>`<button data-page="${p}" class="${p==='media'?'active':''}">${icon(ico)}<span>${label}</span></button>`).join('');
  $('#app').innerHTML=`<aside class="sidebar"><div class="brand">${logo}<div><strong>cliplab<span class="hero-accent">.</span></strong><small>IBEE CREATOR STUDIO</small></div></div><div class="workspace"><span class="avatar">${esc(S.session.username.slice(0,2).toUpperCase())}</span><div><strong>${esc(S.session.username)}</strong><p class="tiny muted">${esc(S.session.role)}</p></div></div><p class="nav-label">CHỨC NĂNG</p><nav class="nav">${nav}</nav><div class="sidebar-bottom"><div class="free-card"><span class="pill green">IBEE API</span><h3>Giọng theo phân quyền</h3><p>Admin cấp giọng cho từng tài khoản con.</p></div></div></aside><main class="main"><header class="topbar"><div class="crumb"><strong id="breadcrumb">Tư liệu video</strong></div><div class="user-badge"><span class="pill ${S.session.role==='admin'?'purple':'green'}">${esc(S.session.role)}</span><strong>${esc(S.session.username)}</strong><button id="logout" class="small">${icon('logout')}</button></div></header><div class="content"><div id="page-media">${mediaMarkup()}</div><div id="page-script" hidden>${scriptMarkup()}</div><div id="page-voice" hidden>${voiceMarkup()}</div><div id="page-settings" hidden>${settingsMarkup()}</div></div></main>`;
 }
 function navigate(page){
- if(!pages[page]||S.camera.recording)return;
+ if(!pages[page]||!canOpenPage(page)||S.camera.recording)return;
  S.page=page;if(page!=='media'&&S.camera.stream)closeCamera();
  for(const p of Object.keys(pages))$('#page-'+p).hidden=p!==page;
  $$('.nav [data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===page));
@@ -198,7 +200,7 @@ async function boot(){
  renderApp();bindEvents();
  try{const d=JSON.parse(localStorage.getItem(draftKey())||'{}');$('#script-prompt').value=d.prompt||'';$('#script-editor').value=d.script||'';$('#voice-text').value=d.voice||'';$('#analysis-brief').value=d.brief||''}catch{}
  if(!S.session.providers.deepseek&&S.session.providers.openai)$('#text-provider').value='openai';
- renderVideoLibrary();selectVideo(S.selectedVideo);renderSettings();updateCounts();
+ renderVideoLibrary();selectVideo(S.selectedVideo);if(S.session.role==='admin')renderSettings();updateCounts();
  const latest=S.assets.filter(a=>a.kind==='audio').sort((a,b)=>b.createdAt-a.createdAt)[0];if(latest)showAudio(latest);
 }
 loginScreen();
