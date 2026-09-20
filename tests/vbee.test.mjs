@@ -22,7 +22,7 @@ test('Vbee flow mirrors working app: submit -> requestId -> COMPLETED -> audioLi
   const calls=[];
   global.fetch=async(url,options={})=>{
     const href=String(url); calls.push({href,options});
-    if(href==='https://redis.test'){
+    if(href==='https://redis.test/' || href==='https://redis.test'){
       const args=JSON.parse(options.body);
       if(args[0]==='GET' && args[1]==='cliplab:voice-assignment:user01') return json({result:JSON.stringify('voice-professional-1')});
       if(args[0]==='GET' && args[1]==='cliplab:vbee-professional-voices') return json({result:JSON.stringify([{code:'voice-professional-1',label:'Giọng Pro'}])});
