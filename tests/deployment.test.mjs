@@ -30,11 +30,21 @@ test('admin voice assignment captures selected value before disabling the select
 });
 
 
-test('Vbee requests follow redirects and surface provider-specific errors', async () => {
+test('Vbee integration matches the current batch API contract', async () => {
+  const source = await readFile('lib/providers.mjs', 'utf8');
+  assert.match(source, /https:\/\/api\.vbee\.vn\/v1\/tts/);
+  assert.match(source, /https:\/\/api\.vbee\.vn\/v1\/tts\/requests/);
+  assert.match(source, /'App-Id': key\('VBEE_APP_ID'\)/);
+  assert.match(source, /process\.env\.VBEE_TOKEN \|\| process\.env\.VBEE_ACCESS_TOKEN/);
+  for (const field of ['text:', 'voiceCode:', "mode: 'async'", "outputFormat: 'mp3'", 'webhookUrl:', 'clientPause:']) assert.match(source, new RegExp(field.replace(/[.*+?^$\{\}()|[\]\\]/g, '\\test('Vbee requests follow redirects and surface provider-specific errors', async () => {
   const source = await readFile('lib/providers.mjs', 'utf8');
   assert.match(source, /redirect: 'follow'/);
   assert.match(source, /VBEE_NETWORK_ERROR/);
   assert.match(source, /VBEE_BAD_RESPONSE/);
   assert.match(source, /VBEE_API_ERROR/);
   assert.doesNotMatch(source, /response_type: 'indirect'/);
+});')));
+  for (const legacy of ['input_text', 'voice_code', 'callback_url', 'speed_rate', "app_id:"]) assert.doesNotMatch(source, new RegExp(legacy));
+  assert.match(source, /VBEE_NETWORK_ERROR/);
+  assert.match(source, /VBEE_API_ERROR/);
 });
