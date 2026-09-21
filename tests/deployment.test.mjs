@@ -188,15 +188,24 @@ test('video analysis uses smart scene-change frames and DeepSeek Vision only',as
 });
 
 
-test('media page supports live front/rear camera switching during recording',async()=>{
+test('media page supports mobile-safe live front/rear camera switching during recording',async()=>{
   const frontend=await readFile('public/app.js','utf8');
   const media=await readFile('public/media.js','utf8');
   assert.match(frontend,/id="switch-camera"/);
   assert.match(frontend,/S\.camera\.switchFacing\(next\)/);
   assert.match(frontend,/Đã chuyển sang camera sau/);
-  assert.match(media,/async switchFacing\(nextFacing\)/);
-  assert.match(media,/facingMode: \{ exact: next \}/);
-  assert.match(media,/new MediaStream\(\[videoTrack, \.\.\.this\.rawStream\.getAudioTracks\(\)\]\)/);
+  assert.match(media,/async videoInputs\(\)/);
+  assert.match(media,/enumerateDevices\(\)/);
+  assert.match(media,/pickVideoInput\(devices, oldDeviceId, next\)/);
+  assert.match(media,/deviceId: \{ exact: deviceId \}/);
+  assert.match(media,/facingMode: \{ exact: facing \}/);
+  assert.match(media,/oldVideoTracks\.forEach\(t => t\.stop\(\)\)/);
+  assert.match(media,/restartDrawLoop\(\)/);
+  assert.match(media,/Best effort recovery of the original camera/);
+  const releaseAt=media.indexOf('oldVideoTracks.forEach(t => t.stop())');
+  const acquireAt=media.indexOf("fresh = await this.acquireVideo",releaseAt);
+  assert.ok(releaseAt>=0&&acquireAt>releaseAt,'old physical camera must be released before acquiring the next one');
+  assert.match(media,/this\.stream = new MediaStream\(\[videoTrack, \.\.\.this\.rawStream\.getAudioTracks\(\)\]\)/);
   assert.match(media,/canvas\.width = this\.portrait \? 720 : 1280/);
   assert.match(media,/canvas\.height = this\.portrait \? 1280 : 720/);
 });
