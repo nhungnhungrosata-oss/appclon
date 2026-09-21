@@ -155,3 +155,14 @@ test('9:16 recorder creates a real 720x1280 canvas stream instead of trusting ca
   assert.match(frontend,/applyCameraRatioUI/);
   assert.match(css,/\.camera-box\.portrait\{[^}]*aspect-ratio:9\/16/);
 });
+
+
+test('Gemini analysis defaults to stable 3.5 Flash-Lite and falls back on model 404',async()=>{
+  const source=await readFile('lib/providers.mjs','utf8');
+  const env=await readFile('.env.example','utf8');
+  assert.match(source,/process\.env\.GOOGLE_MODEL \|\| 'gemini-3\.5-flash-lite'/);
+  assert.match(source,/GOOGLE_ANALYSIS_FALLBACKS = \['gemini-3\.5-flash-lite','gemini-3\.6-flash','gemini-2\.5-flash-lite'\]/);
+  assert.match(source,/response\.status === 404/);
+  assert.match(source,/thinkingLevel: 'low'/);
+  assert.match(env,/GOOGLE_MODEL=gemini-3\.5-flash-lite/);
+});
