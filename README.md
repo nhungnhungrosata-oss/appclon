@@ -100,3 +100,8 @@ Admin có thể vào **Thiết lập** để xem fingerprint an toàn của key 
 ## Gemini model fallback
 
 Phân tích video dùng GenerateContent API. Model mặc định là `gemini-3.5-flash-lite`. Nếu biến `GOOGLE_MODEL` trên Vercel đang trỏ tới model cũ và Google trả HTTP 404, app tự thử lần lượt các model stable: `gemini-3.5-flash-lite`, `gemini-3.6-flash`, rồi `gemini-2.5-flash-lite`. Fallback chỉ xảy ra khi model trả 404; các lỗi key/quota khác vẫn được báo ngay.
+
+
+### Gemini 503 / tạm quá tải
+
+Google định nghĩa HTTP 503 `UNAVAILABLE` là lỗi tạm thời và khuyến nghị retry theo exponential backoff. Phân tích video trong ClipLab sẽ retry cùng model tối đa một lần; nếu vẫn 503, app chuyển sang model stable fallback tiếp theo. Nếu tất cả model đều 503, app báo rõ trạng thái quá tải thay vì lỗi chung.
