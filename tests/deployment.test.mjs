@@ -163,6 +163,17 @@ test('Gemini analysis defaults to stable 3.5 Flash-Lite and falls back on model 
   assert.match(source,/process\.env\.GOOGLE_MODEL \|\| 'gemini-3\.5-flash-lite'/);
   assert.match(source,/GOOGLE_ANALYSIS_FALLBACKS = \['gemini-3\.5-flash-lite','gemini-3\.6-flash','gemini-2\.5-flash-lite'\]/);
   assert.match(source,/response\.status === 404/);
-  assert.match(source,/thinkingLevel: 'low'/);
+  assert.match(source,/thinkingLevel: model\.includes\('flash-lite'\) \? 'minimal' : 'low'/);
   assert.match(env,/GOOGLE_MODEL=gemini-3\.5-flash-lite/);
+});
+
+
+test('Gemini 503 uses bounded retry/backoff and cross-model fallback',async()=>{
+  const source=await readFile('lib/providers.mjs','utf8');
+  assert.match(source,/response\.status === 503/);
+  assert.match(source,/google_model_503_retry/);
+  assert.match(source,/retryDelay\(response, attempt\)/);
+  assert.match(source,/attempt < 2/);
+  assert.match(source,/Google Gemini đang tạm quá tải/);
+  assert.match(source,/thinkingLevel: model\.includes\('flash-lite'\) \? 'minimal' : 'low'/);
 });
