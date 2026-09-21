@@ -26,5 +26,18 @@
 .analysis-complete-inner>div{display:grid;grid-template-columns:auto 1fr;column-gap:10px;align-items:center}
 .analysis-complete-inner p{grid-column:2;color:var(--muted);font-size:11px;line-height:1.6;margin-top:4px}
 .complete-mark{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;background:#294021;color:#b8df9d;font-weight:800;grid-row:1/3}
-#switch-camera:not(:disabled){border-color:#555a70}
+
 @media(max-width:650px){.analysis-complete-inner{align-items:stretch;flex-direction:column}.analysis-complete-inner button{width:100%}}
+
+.camera-primary-actions{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:15px}
+.camera-cta{min-height:54px;border-radius:12px;font-size:14px;font-weight:800;letter-spacing:.01em}
+.camera-open{background:#ff9a32;color:#261609;border-color:#ffad55;box-shadow:0 7px 20px #ff8c2430}
+.camera-open:hover{background:#ffa94a;filter:none}
+.camera-record{background:#ff6a00;color:#fff7ef;border-color:#ff7c1d;box-shadow:0 8px 22px #ff6a0038}
+.camera-record:hover{background:#ff7918;filter:none}
+.camera-cta:disabled{opacity:.42;box-shadow:none;cursor:not-allowed}
+.record-dot{width:11px;height:11px;border-radius:50%;background:currentColor;box-shadow:0 0 0 3px #ffffff26}
+.camera-secondary-actions{display:flex;gap:10px;align-items:center;margin-top:10px}
+.camera-stop{min-height:43px;background:#3b1c1f;color:#ffb5ad;border-color:#71343a;font-weight:700}
+.camera-stop:hover{background:#482126}
+@media(max-width:560px){.camera-primary-actions{grid-template-columns:1fr}.camera-cta{min-height:52px}}
