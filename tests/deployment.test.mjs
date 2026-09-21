@@ -222,7 +222,7 @@ test('video library persists clear thumbnail images and backfills older videos',
   assert.match(media,/Math\.sqrt\(variance\)/);
   assert.match(frontend,/thumbnail=await createVideoThumbnail/);
   assert.match(frontend,/async function ensureVideoThumbnails/);
-  assert.match(frontend,/await ensureVideoThumbnails\(\)/);
+  assert.match(frontend,/ensureVideoThumbnails\(\)\.then/);
   assert.match(frontend,/asset-thumb/);
   assert.match(frontend,/<img src=/);
   assert.match(css,/\.asset-thumb video,\.asset-thumb img/);
