@@ -602,6 +602,15 @@ export class Recorder {
     if (!source.videoWidth || !source.videoHeight) throw new Error('Không đọc được kích thước camera.');
   }
 
+  restartDrawLoop() {
+    try {
+      if (this.sourceVideo && 'cancelVideoFrameCallback' in this.sourceVideo && typeof this.frameHandle === 'number') this.sourceVideo.cancelVideoFrameCallback(this.frameHandle);
+      else if (typeof this.frameHandle === 'number') cancelAnimationFrame(this.frameHandle);
+    } catch {}
+    this.frameHandle = null;
+    this.drawFrame();
+  }
+
   drawFrame() {
     const source = this.sourceVideo, canvas = this.canvas, ctx = this.drawContext;
     if (!source || !canvas || !ctx) return;
@@ -656,7 +665,7 @@ export class Recorder {
     if (!ctx) throw new Error('Không tạo được khung hình camera.');
 
     this.canvas = canvas; this.drawContext = ctx;
-    this.drawFrame();
+    this.restartDrawLoop();
 
     this.canvasStream = canvas.captureStream(30);
     const videoTrack = this.canvasStream.getVideoTracks()[0];
@@ -705,6 +714,7 @@ export class Recorder {
       }
 
       await this.attachSource(fresh);
+      this.restartDrawLoop();
       this.rawStream = new MediaStream([freshTrack, ...audioTracks]);
       const actualFacing = freshTrack.getSettings?.().facingMode;
       this.facing = actualFacing === 'user' || actualFacing === 'environment' ? actualFacing : next;
@@ -719,6 +729,7 @@ export class Recorder {
         const recoveredTrack = recovered.getVideoTracks()[0];
         if (recoveredTrack) {
           await this.attachSource(recovered);
+          this.restartDrawLoop();
           this.rawStream = new MediaStream([recoveredTrack, ...audioTracks]);
           this.facing = oldFacing;
         } else {
