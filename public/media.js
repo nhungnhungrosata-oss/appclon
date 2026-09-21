@@ -61,6 +61,50 @@ export async function durationOf(blob, kind = 'video', hint = 0) {
     throw new Error('Không đọc được thời lượng. Chuyển video sang MP4 trước khi tải lên.');
   } finally { media.removeAttribute('src'); media.load(); URL.revokeObjectURL(url); }
 }
+export async function createVideoThumbnail(blob, durationHint = 0) {
+  if (!(blob instanceof Blob) || blob.size < 100) throw new Error('Video không hợp lệ.');
+  const video = document.createElement('video');
+  const url = URL.createObjectURL(blob);
+  video.muted = true; video.playsInline = true; video.preload = 'auto';
+  try {
+    const ready = event(video, 'loadeddata', 12000); video.src = url; await ready;
+    if (!video.videoWidth || !video.videoHeight) throw new Error('Không đọc được hình video.');
+    const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : durationHint;
+    const long = Math.max(video.videoWidth, video.videoHeight);
+    const scale = Math.min(1, 480 / long);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+    canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) throw new Error('Không tạo được ảnh đại diện.');
+
+    const end = Math.max(.05, Math.min(Number.isFinite(duration) ? duration - .05 : 1, 1.2));
+    const times = [...new Set([.04, .22, .55, 1].map(t => Number(Math.min(end, t).toFixed(3))))].filter(t => t >= 0);
+    let best = null;
+    for (const time of times) {
+      await seekVideo(video, time);
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      let sum = 0, sum2 = 0, samples = 0;
+      const step = Math.max(4, Math.floor(data.length / 12000 / 4) * 4);
+      for (let i = 0; i < data.length; i += step) {
+        const y = data[i] * .2126 + data[i + 1] * .7152 + data[i + 2] * .0722;
+        sum += y; sum2 += y * y; samples++;
+      }
+      const mean = sum / Math.max(1, samples);
+      const variance = Math.max(0, sum2 / Math.max(1, samples) - mean * mean);
+      const score = Math.sqrt(variance) - Math.abs(mean - 125) * .08;
+      if (!best || score > best.score) {
+        const image = await new Promise((resolve, reject) => canvas.toBlob(b => b ? resolve(b) : reject(new Error('Không tạo được ảnh đại diện.')), 'image/jpeg', .8));
+        best = { score, image };
+      }
+    }
+    return best?.image || await new Promise((resolve, reject) => canvas.toBlob(b => b ? resolve(b) : reject(new Error('Không tạo được ảnh đại diện.')), 'image/jpeg', .8));
+  } finally {
+    video.removeAttribute('src'); video.load(); URL.revokeObjectURL(url);
+  }
+}
+
 function clampScene(v,min,max){return Math.max(min,Math.min(max,v))}
 function medianScene(values){
   if(!values.length)return 0;
@@ -483,89 +527,133 @@ export async function replaceVideoAudio(videoBlob, audioBlob, expectedDuration, 
 }
 export class Recorder {
   stream = null; rawStream = null; recorder = null; recording = false;
-  portrait = false; sourceVideo = null; canvas = null; canvasStream = null; frameHandle = null;
+  portrait = false; facing = 'user'; audioEnabled = true; isVideo = true;
+  sourceVideo = null; canvas = null; canvasStream = null; frameHandle = null; drawContext = null;
+
+  videoConstraints(facing = this.facing) {
+    return {
+      facingMode: { ideal: facing },
+      width: { ideal: this.portrait ? 720 : 1280 },
+      height: { ideal: this.portrait ? 1280 : 720 },
+      aspectRatio: { ideal: this.portrait ? 9 / 16 : 16 / 9 },
+      frameRate: { ideal: 25, max: 30 }
+    };
+  }
+
+  async attachSource(stream) {
+    if (!this.sourceVideo) throw new Error('Camera chưa sẵn sàng.');
+    const source = this.sourceVideo;
+    const ready = event(source, 'loadedmetadata', 12000);
+    source.srcObject = new MediaStream(stream.getVideoTracks());
+    await source.play().catch(() => {});
+    await ready;
+    if (!source.videoWidth || !source.videoHeight) throw new Error('Không đọc được kích thước camera.');
+  }
+
+  drawFrame() {
+    const source = this.sourceVideo, canvas = this.canvas, ctx = this.drawContext;
+    if (!source || !canvas || !ctx) return;
+    const sw = source.videoWidth, sh = source.videoHeight;
+    if (sw && sh && source.readyState >= 2) {
+      const targetRatio = canvas.width / canvas.height;
+      const sourceRatio = sw / sh;
+      let sx = 0, sy = 0, cw = sw, ch = sh;
+      if (sourceRatio > targetRatio) {
+        cw = sh * targetRatio;
+        sx = (sw - cw) / 2;
+      } else if (sourceRatio < targetRatio) {
+        ch = sw / targetRatio;
+        sy = (sh - ch) / 2;
+      }
+      ctx.drawImage(source, sx, sy, cw, ch, 0, 0, canvas.width, canvas.height);
+    }
+    if ('requestVideoFrameCallback' in source) this.frameHandle = source.requestVideoFrameCallback(() => this.drawFrame());
+    else this.frameHandle = requestAnimationFrame(() => this.drawFrame());
+  }
 
   async open({ video = true, facing = 'user', portrait = false, audio = true } = {}) {
     this.close();
     if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) throw new Error('Cần Chrome/Edge/Safari mới và HTTPS (hoặc localhost) để quay/thu.');
-
-    this.portrait = !!(video && portrait);
-    this.rawStream = await navigator.mediaDevices.getUserMedia({
-      video: video ? {
-        facingMode: { ideal: facing },
-        width: { ideal: portrait ? 720 : 1280 },
-        height: { ideal: portrait ? 1280 : 720 },
-        aspectRatio: { ideal: portrait ? 9 / 16 : 16 / 9 },
-        frameRate: { ideal: 25, max: 30 }
-      } : false,
-      audio: audio ? { echoCancellation: video, noiseSuppression: video } : false
-    });
-
     this.isVideo = video;
-    if (!this.portrait) {
+    this.portrait = !!(video && portrait);
+    this.facing = facing === 'environment' ? 'environment' : 'user';
+    this.audioEnabled = !!audio;
+
+    if (!video) {
+      this.rawStream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
       this.stream = this.rawStream;
       return this.stream;
     }
 
-    if (!document.createElement('canvas').captureStream) {
-      this.rawStream.getTracks().forEach(t => t.stop());
-      this.rawStream = null;
-      throw new Error('Trình duyệt này chưa hỗ trợ quay dọc 9:16 thật. Hãy dùng Chrome hoặc Edge mới.');
-    }
+    if (!document.createElement('canvas').captureStream) throw new Error('Trình duyệt này chưa hỗ trợ ghi hình ổn định. Hãy dùng Chrome hoặc Edge mới.');
+
+    this.rawStream = await navigator.mediaDevices.getUserMedia({
+      video: this.videoConstraints(this.facing),
+      audio: audio ? { echoCancellation: true, noiseSuppression: true } : false
+    });
 
     const source = document.createElement('video');
-    source.muted = true;
-    source.playsInline = true;
-    source.autoplay = true;
-    source.srcObject = this.rawStream;
-    const ready = event(source, 'loadedmetadata', 12000);
-    await source.play().catch(() => {});
-    await ready;
-    if (!source.videoWidth || !source.videoHeight) throw new Error('Không đọc được kích thước camera.');
+    source.muted = true; source.playsInline = true; source.autoplay = true;
+    this.sourceVideo = source;
+    await this.attachSource(this.rawStream);
 
     const canvas = document.createElement('canvas');
-    canvas.width = 720;
-    canvas.height = 1280;
+    canvas.width = this.portrait ? 720 : 1280;
+    canvas.height = this.portrait ? 1280 : 720;
     const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
-    if (!ctx) throw new Error('Không tạo được khung hình dọc.');
+    if (!ctx) throw new Error('Không tạo được khung hình camera.');
 
-    const draw = () => {
-      const sw = source.videoWidth, sh = source.videoHeight;
-      if (sw && sh && source.readyState >= 2) {
-        const targetRatio = 9 / 16;
-        const sourceRatio = sw / sh;
-        let sx = 0, sy = 0, cw = sw, ch = sh;
-        if (sourceRatio > targetRatio) {
-          cw = sh * targetRatio;
-          sx = (sw - cw) / 2;
-        } else if (sourceRatio < targetRatio) {
-          ch = sw / targetRatio;
-          sy = (sh - ch) / 2;
-        }
-        ctx.drawImage(source, sx, sy, cw, ch, 0, 0, canvas.width, canvas.height);
-      }
-      if ('requestVideoFrameCallback' in source) this.frameHandle = source.requestVideoFrameCallback(draw);
-      else this.frameHandle = requestAnimationFrame(draw);
-    };
-    draw();
+    this.canvas = canvas; this.drawContext = ctx;
+    this.drawFrame();
 
-    const canvasStream = canvas.captureStream(30);
-    const videoTrack = canvasStream.getVideoTracks()[0];
-    if (!videoTrack) throw new Error('Không tạo được stream dọc 9:16.');
+    this.canvasStream = canvas.captureStream(30);
+    const videoTrack = this.canvasStream.getVideoTracks()[0];
+    if (!videoTrack) throw new Error('Không tạo được stream ghi hình.');
 
-    const audioTracks = this.rawStream.getAudioTracks();
-    this.sourceVideo = source;
-    this.canvas = canvas;
-    this.canvasStream = canvasStream;
-    this.stream = new MediaStream([videoTrack, ...audioTracks]);
+    this.stream = new MediaStream([videoTrack, ...this.rawStream.getAudioTracks()]);
     return this.stream;
+  }
+
+  async switchFacing(nextFacing) {
+    if (!this.isVideo || !this.sourceVideo || !this.rawStream || !this.stream) throw new Error('Hãy mở camera trước.');
+    const next = nextFacing === 'environment' || nextFacing === 'user'
+      ? nextFacing
+      : (this.facing === 'user' ? 'environment' : 'user');
+    if (next === this.facing) return { facing: this.facing, stream: this.stream };
+
+    let fresh;
+    const exact = { ...this.videoConstraints(next), facingMode: { exact: next } };
+    try {
+      fresh = await navigator.mediaDevices.getUserMedia({ video: exact, audio: false });
+    } catch {
+      try { fresh = await navigator.mediaDevices.getUserMedia({ video: this.videoConstraints(next), audio: false }); }
+      catch { throw new Error(next === 'environment' ? 'Không mở được camera sau trên thiết bị này.' : 'Không mở được camera trước trên thiết bị này.'); }
+    }
+    const freshTrack = fresh.getVideoTracks()[0];
+    if (!freshTrack) { fresh.getTracks().forEach(t => t.stop()); throw new Error('Không tìm thấy camera cần chuyển.'); }
+
+    const oldSource = this.sourceVideo.srcObject;
+    const oldVideoTracks = this.rawStream.getVideoTracks();
+    const audioTracks = this.rawStream.getAudioTracks();
+    try {
+      await this.attachSource(fresh);
+      this.rawStream = new MediaStream([freshTrack, ...audioTracks]);
+      this.facing = next;
+      oldVideoTracks.forEach(t => t.stop());
+      return { facing: this.facing, stream: this.stream };
+    } catch (e) {
+      fresh.getTracks().forEach(t => t.stop());
+      this.sourceVideo.srcObject = oldSource;
+      await this.sourceVideo.play().catch(() => {});
+      throw e;
+    }
   }
 
   start(maxSeconds = 180, tick = () => {}) {
     if (!this.stream) throw new Error('Hãy mở camera/micro trước.');
     const choices = this.isVideo ? ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4'] : ['audio/webm;codecs=opus', 'audio/mp4', 'audio/webm'];
     const mime = choices.find(x => MediaRecorder.isTypeSupported(x));
-    const videoBitsPerSecond = this.portrait ? 2600000 : 1500000;
+    const videoBitsPerSecond = this.portrait ? 2600000 : 2200000;
     this.recorder = new MediaRecorder(this.stream, { ...(mime ? { mimeType: mime } : {}), ...(this.isVideo ? { videoBitsPerSecond, audioBitsPerSecond: 96000 } : { audioBitsPerSecond: 128000 }) });
     this.chunks = []; this.recording = true; this.startedAt = performance.now();
     this.done = new Promise((resolve, reject) => {
@@ -575,7 +663,7 @@ export class Recorder {
         const duration = (performance.now() - this.startedAt) / 1000;
         const blob = new Blob(this.chunks, { type: this.recorder.mimeType.split(';')[0] });
         this.recording = false; clearInterval(this.timer);
-        resolve({ blob, duration, width: this.portrait ? 720 : null, height: this.portrait ? 1280 : null, portrait: this.portrait });
+        resolve({ blob, duration, width: this.portrait ? 720 : 1280, height: this.portrait ? 1280 : 720, portrait: this.portrait });
       };
     });
     this.recorder.start(1000);
@@ -600,6 +688,6 @@ export class Recorder {
     this.canvasStream?.getTracks().forEach(t => t.stop());
     this.stream?.getTracks().forEach(t => t.stop());
     this.rawStream?.getTracks().forEach(t => t.stop());
-    this.stream = null; this.rawStream = null; this.canvasStream = null; this.sourceVideo = null; this.canvas = null;
+    this.stream = null; this.rawStream = null; this.canvasStream = null; this.sourceVideo = null; this.canvas = null; this.drawContext = null;
   }
 }

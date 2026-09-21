@@ -1,4 +1,4 @@
-import { initDB, put, all, remove, clear, blobUrl, releaseUrls, download, pause, cleanMime, durationOf, detectSceneFrames, toBase64, extractSpeechChunks, composeAlignedSpeech, trimSpeechAudio, replaceVideoAudio, Recorder } from './media.js';
+import { initDB, put, all, remove, clear, blobUrl, releaseUrls, download, pause, cleanMime, durationOf, createVideoThumbnail, detectSceneFrames, toBase64, extractSpeechChunks, composeAlignedSpeech, trimSpeechAudio, replaceVideoAudio, Recorder } from './media.js';
 
 const $ = (s, root = document) => root.querySelector(s);
 const $$ = (s, root = document) => [...root.querySelectorAll(s)];
@@ -57,18 +57,17 @@ function loginScreen(){
   $('#login-form').onsubmit=e=>{e.preventDefault();busy($('#login-btn'),async()=>{await api('login',{username:$('#username').value,password:$('#password').value});await boot()},'#login-error')};
 }
 function mediaMarkup(){
- return `<div class="hero"><div><span class="eyebrow">VIDEO MATERIAL</span><h1>Quay hoặc tải <span class="hero-accent">video tư liệu.</span></h1><p>DeepSeek Vision chỉ nhận các frame khi hệ thống phát hiện video chuyển sang cảnh mới.</p></div><span class="pill">${icon('video')} Lưu trên thiết bị</span></div>
+ return `<div class="hero"><div><span class="eyebrow">VIDEO MATERIAL</span><h1>Quay hoặc tải <span class="hero-accent">video tư liệu.</span></h1><p>Chuẩn bị video, phân tích nội dung rồi tiếp tục sang bước viết kịch bản.</p></div><span class="pill">${icon('video')} Lưu trên thiết bị</span></div>
  <div class="media-columns"><section class="panel"><div class="panel-head"><h2>Studio ghi hình</h2><span class="pill green">Tối đa 3 phút</span></div>
  <div class="camera-controls"><select id="camera-facing"><option value="user">Camera trước</option><option value="environment">Camera sau</option></select><select id="camera-ratio"><option value="landscape">Ngang 16:9</option><option value="portrait">Dọc 9:16</option></select><label class="check"><input id="camera-audio" type="checkbox" checked> Micro</label></div>
  <div class="camera-box landscape" id="camera-box"><video id="camera-video" playsinline muted></video><div class="camera-empty" id="camera-empty"><span class="camera-symbol">${icon('video')}</span><strong>Quay tư liệu mới</strong><p>Hoặc tải video có sẵn bên dưới.</p></div><span id="record-time" class="rec-badge" hidden>REC 00:00</span></div>
- <div class="row camera-actions"><button id="open-camera" class="primary">${icon('video')} Mở camera</button><button id="start-record" disabled>${icon('play')} Quay</button><button id="stop-record" class="danger" hidden>${icon('stop')} Dừng</button><button id="close-camera" class="small" hidden>Đóng</button></div>
+ <div class="row camera-actions"><button id="open-camera" class="primary">${icon('video')} Mở camera</button><button id="switch-camera" class="small" disabled>${icon('refresh')} Đổi camera</button><button id="start-record" disabled>${icon('play')} Quay</button><button id="stop-record" class="danger" hidden>${icon('stop')} Dừng</button><button id="close-camera" class="small" hidden>Đóng</button></div>
  <div class="dropzone"><div><strong>Tải video từ máy</strong><p>MP4, WebM, MOV · tối đa 80 MB / 3 phút</p></div><button id="choose-video" class="small">${icon('upload')} Chọn file</button><input id="video-file" type="file" accept="video/mp4,video/webm,video/quicktime,.m4v" hidden></div><p id="camera-status" class="status-line"></p></section>
- <section class="panel"><div class="panel-head"><h2>Phân tích kịch bản · DeepSeek</h2>${icon('magic')}</div><div id="analysis-source" class="source-label">Chưa chọn video.</div>
- <div class="notice"><strong>Lấy frame thông minh:</strong> ClipLab quét video ở độ phân giải thấp, so sánh đặc trưng màu/bố cục và chỉ xuất JPEG khi phát hiện chuyển cảnh rõ rệt. Cảnh lặp không gửi lại nên giảm số ảnh và chi phí.</div>
- <div class="field"><label>Độ nhạy phát hiện cảnh</label><select id="scene-sensitivity"><option value="auto" selected>Tự động · khuyên dùng</option><option value="high">Nhạy hơn · bắt nhiều cảnh</option><option value="strict">Chặt hơn · chỉ cảnh thay đổi rõ</option></select></div>
+ <section class="panel"><div class="panel-head"><h2>Phân tích kịch bản</h2>${icon('magic')}</div><div id="analysis-source" class="source-label">Chưa chọn video.</div>
+ <div class="field"><label>Độ nhạy chuyển cảnh</label><select id="scene-sensitivity"><option value="auto" selected>Tự động</option><option value="high">Nhạy hơn</option><option value="strict">Chặt hơn</option></select></div>
  <div class="field"><label>Yêu cầu phân tích</label><textarea id="analysis-brief" rows="4" maxlength="6000" placeholder="Ví dụ: phân tích từng cảnh và viết lời dẫn bán hàng tự nhiên"></textarea></div>
- <label class="check"><input id="analysis-consent" type="checkbox">Tôi có quyền sử dụng video và đồng ý gửi các frame cảnh đã chọn cho DeepSeek. DeepSeek không nhận audio trong bước này.</label><button id="analyze-btn" class="purple full">Phân tích bằng DeepSeek</button><p id="analysis-status" class="status-line"></p><div class="progress" id="analysis-progress" hidden><div></div></div></section></div>
- <section class="panel result" id="analysis-result" hidden><div class="panel-head"><h2>Kết quả phân tích</h2><button id="analysis-to-script" class="small primary">Đưa sang kịch bản</button></div><div id="analysis-summary" class="result-summary"></div><div id="analysis-scenes" class="scene-list"></div><div class="field"><label>Lời dẫn đề xuất</label><textarea id="analysis-script" rows="7"></textarea></div></section>
+ <label class="check"><input id="analysis-consent" type="checkbox">Tôi có quyền sử dụng video và đồng ý gửi các hình ảnh cần thiết để AI phân tích.</label><button id="analyze-btn" class="purple full">Phân tích video</button><p id="analysis-status" class="status-line"></p><div class="progress" id="analysis-progress" hidden><div></div></div></section></div>
+ <section class="panel analysis-complete" id="analysis-complete" hidden><div class="analysis-complete-inner"><div><span class="complete-mark">✓</span><strong>Phân tích hoàn tất</strong><p>Kết quả đã được lưu cho video này và sẽ được dùng ở bước viết kịch bản.</p></div><button id="analysis-go-script" class="primary">${icon('pen')} Tiếp tục sang Viết kịch bản</button></div></section>
  <div class="library-heading"><h2>Thư viện video <span id="video-count" class="pill">0</span></h2></div><div id="video-library" class="asset-grid"></div>`;
 }
 function scriptMarkup(){
@@ -134,9 +133,12 @@ function updateCounts(){
  if($('#script-count'))$('#script-count').textContent=`${s.length.toLocaleString('vi-VN')} ký tự`;
  if($('#voice-count'))$('#voice-count').textContent=`${v.length.toLocaleString('vi-VN')} / 5.000 ký tự`;
 }
+function videoThumbUrl(v){
+ return v?.thumbnail instanceof Blob ? blobUrl({id:v.id+'-thumbnail',blob:v.thumbnail}) : '';
+}
 function renderVideoLibrary(){
  const videos=S.assets.filter(a=>a.kind==='video');$('#video-count').textContent=videos.length;
- $('#video-library').innerHTML=videos.length?videos.map(v=>`<article class="asset-card ${v.id===S.selectedVideo?'selected':''}"><div class="asset-thumb"><video src="${esc(blobUrl(v))}" muted preload="metadata"></video><span class="duration">${clock(v.duration)}</span></div><div class="asset-body"><div class="asset-title">${esc(v.name)}</div><div class="asset-meta">${size(v.blob.size)}</div><div class="asset-actions"><button class="small" data-select-video="${v.id}">Chọn</button><button class="small danger" data-delete-asset="${v.id}">Xóa</button></div></div></article>`).join(''):'<div class="empty">Chưa có video.</div>';
+ $('#video-library').innerHTML=videos.length?videos.map(v=>{const thumb=videoThumbUrl(v);return `<article class="asset-card ${v.id===S.selectedVideo?'selected':''}"><div class="asset-thumb">${thumb?`<img src="${esc(thumb)}" alt="Ảnh đại diện ${esc(v.name)}">`:`<video src="${esc(blobUrl(v))}" muted preload="metadata"></video>`}<span class="duration">${clock(v.duration)}</span></div><div class="asset-body"><div class="asset-title">${esc(v.name)}</div><div class="asset-meta">${size(v.blob.size)}</div><div class="asset-actions"><button class="small" data-select-video="${v.id}">Chọn</button><button class="small danger" data-delete-asset="${v.id}">Xóa</button></div></div></article>`}).join(''):'<div class="empty">Chưa có video.</div>';
 }
 function selectVideo(id){
  S.selectedVideo=id;const v=videoAsset(),player=$('#camera-video');
@@ -144,32 +146,40 @@ function selectVideo(id){
  else{player.removeAttribute('src');player.load();player.controls=false;$('#camera-empty').hidden=false;$('#analysis-source').textContent='Chưa chọn video.';}
  renderVideoLibrary();showAnalysis(v?.analysis);
 }
+async function ensureVideoThumbnails(){
+ let changed=false;
+ for(const v of S.assets.filter(a=>a.kind==='video'&&!(a.thumbnail instanceof Blob))){
+  try{v.thumbnail=await createVideoThumbnail(v.blob,v.duration);await put('assets',v);changed=true}catch{}
+ }
+ if(changed)S.assets=await all('assets');
+}
 async function ingestVideo(file,hint=0){
  if(file.size>80*1024*1024)throw new Error('Video vượt 80 MB.');
  const mime=cleanMime(file);if(!['video/mp4','video/webm','video/quicktime','video/x-m4v'].includes(mime))throw new Error('Chỉ hỗ trợ MP4, WebM, MOV.');
  const duration=hint||await durationOf(file,'video');if(duration<0.1||duration>180)throw new Error('Video cần dài 0,1-180 giây.');
- const rec={id:crypto.randomUUID(),name:file.name,kind:'video',blob:new Blob([file],{type:mime}),duration,createdAt:Date.now()};
+ const videoBlob=new Blob([file],{type:mime});
+ let thumbnail=null;try{thumbnail=await createVideoThumbnail(videoBlob,duration)}catch{}
+ const rec={id:crypto.randomUUID(),name:file.name,kind:'video',blob:videoBlob,thumbnail,duration,createdAt:Date.now()};
  await put('assets',rec);S.assets=await all('assets');selectVideo(rec.id);toast('Đã thêm video.');
 }
 function showAnalysis(r){
- $('#analysis-result').hidden=!r;if(!r)return;
- $('#analysis-summary').textContent=r.summary||'';$('#analysis-script').value=r.script||'';
- $('#analysis-scenes').innerHTML=(r.scenes||[]).map(x=>`<div class="scene"><time>${esc(x.time)}</time><div><p>${esc(x.visual)}</p><p class="suggestion">${esc(x.suggestion)}</p></div></div>`).join('');
+ const done=$('#analysis-complete');if(done)done.hidden=!r;
 }
 async function runAnalysis(){
  ensureProvider('deepseek');requireConsent('#analysis-consent');const v=videoAsset();if(!v)throw new Error('Chọn video trước.');
  const progress=(n,msg)=>{$('#analysis-progress').hidden=false;$('#analysis-progress>div').style.width=Math.max(0,Math.min(100,n))+'%';$('#analysis-status').textContent=msg};
  try{
-  progress(3,'Đang quét video để tìm điểm chuyển cảnh...');
+  showAnalysis(null);
+  progress(3,'Đang chuẩn bị video...');
   const detected=await detectSceneFrames(v.blob,v.duration,(n,m,phase)=>{
-    if(phase==='scan')progress(5+Math.round(n/m*45),`Đang quét chuyển cảnh ${n}/${m}...`);
-    else progress(52+Math.round(n/m*18),`Đang xuất frame cảnh ${n}/${m}...`);
+    if(phase==='scan')progress(5+Math.round(n/m*45),`Đang phân tích chuyển cảnh ${n}/${m}...`);
+    else progress(52+Math.round(n/m*18),`Đang chuẩn bị hình ảnh ${n}/${m}...`);
   },{sensitivity:$('#scene-sensitivity').value,maxFrames:28});
-  if(!detected.frames.length)throw new Error('Không lấy được frame cảnh từ video.');
-  progress(72,`Phát hiện ${detected.frames.length} cảnh từ ${detected.scanned} điểm quét. Đang gửi DeepSeek...`);
+  if(!detected.frames.length)throw new Error('Không lấy được hình ảnh từ video.');
+  progress(72,`Đã nhận diện ${detected.frames.length} cảnh. AI đang phân tích...`);
   const result=await api('analysis',{mode:'scene_frames',duration:v.duration,brief:$('#analysis-brief').value,frames:detected.frames,sceneMeta:{scanned:detected.scanned,interval:detected.interval,threshold:detected.threshold},consent:true});
   v.analysis={...result,sceneDetection:{frames:detected.frames.length,scanned:detected.scanned,interval:detected.interval,threshold:detected.threshold}};
-  await put('assets',v);showAnalysis(v.analysis);renderVideoLibrary();progress(100,`Hoàn tất · DeepSeek đã xem ${detected.frames.length} cảnh`);
+  await put('assets',v);showAnalysis(v.analysis);renderVideoLibrary();$('#analysis-status').textContent='Phân tích hoàn tất.';toast('Phân tích video hoàn tất.');
  }finally{$('#analysis-progress').hidden=true}
 }
 function showAudio(rec){S.latestAudio=rec;$('#audio-output').hidden=false;const player=$('#tts-preview');player.pause();player.removeAttribute('src');player.src=rec.playUrl||rec.remoteUrl||blobUrl(rec);player.load();$('#audio-duration').textContent=rec.playUrl?'Sẵn sàng nghe':rec.remoteUrl?'Link Ibee tạm thời':clock(rec.duration);player.onloadedmetadata=()=>{if(Number.isFinite(player.duration)&&player.duration>0)$('#audio-duration').textContent=clock(player.duration)};player.onerror=()=>{$('#audio-duration').textContent='Không tải được audio';$('#voice-status').textContent='Không phát được audio trực tiếp. Hãy thử lại hoặc tải MP3.'}}
@@ -380,7 +390,7 @@ function applyCameraRatioUI(){
  const portrait=ratio.value==='portrait';
  box.classList.toggle('portrait',portrait);box.classList.toggle('landscape',!portrait);
 }
-function closeCamera(){S.camera.close();const p=$('#camera-video');if(!p)return;p.srcObject=null;$('#open-camera').disabled=false;$('#start-record').disabled=true;$('#close-camera').hidden=true;if(!videoAsset())$('#camera-empty').hidden=false}
+function closeCamera(){S.camera.close();const p=$('#camera-video');if(!p)return;p.srcObject=null;$('#open-camera').disabled=false;$('#start-record').disabled=true;if($('#switch-camera'))$('#switch-camera').disabled=true;$('#close-camera').hidden=true;if(!videoAsset())$('#camera-empty').hidden=false}
 function bindCloneEvents(){
  const transcribe=$('#clone-transcribe');if(transcribe)transcribe.onclick=()=>busy(transcribe,transcribeCloneVideo,'#clone-status');
  const synth=$('#clone-synthesize');if(synth)synth.onclick=()=>busy(synth,synthesizeCloneTimeline,'#clone-status');
@@ -397,14 +407,16 @@ function bindEvents(){
   if(b.dataset.removeProVoice)return busy(b,async()=>{await api('admin-remove-voice',{code:b.dataset.removeProVoice});await loadAdminState();toast('Đã xóa giọng khỏi danh sách.')});
  };
  $('#app').onchange=e=>{const el=e.target.closest('[data-assign-user]');if(!el)return;const username=el.dataset.assignUser,voiceCode=el.value;el.disabled=true;(async()=>{try{await api('admin-assign-voice',{username,voiceCode});await loadAdminState();if(username===S.session.username)S.session=await api('session');toast('Đã cập nhật giọng cho '+username)}catch(err){toast(err.message||'Không thể cập nhật giọng.',true);await loadAdminState()}finally{if(document.body.contains(el))el.disabled=false}})()};
- $('#open-camera').onclick=()=>busy($('#open-camera'),async()=>{const portrait=$('#camera-ratio').value==='portrait';applyCameraRatioUI();const stream=await S.camera.open({facing:$('#camera-facing').value,portrait,audio:$('#camera-audio').checked});const p=$('#camera-video');p.removeAttribute('src');p.srcObject=stream;p.controls=false;p.muted=true;await p.play();$('#camera-empty').hidden=true;$('#start-record').disabled=false;$('#close-camera').hidden=false;$('#camera-status').textContent=portrait?'Camera đang xuất khung dọc thật 720×1280 (9:16).':'Camera đang ở khung ngang 16:9.'});
- $('#start-record').onclick=()=>busy($('#start-record'),async()=>{$('#stop-record').hidden=false;$('#record-time').hidden=false;try{const rr=await S.camera.start(179,t=>$('#record-time').textContent='REC '+clock(t));const ext=rr.blob.type.includes('mp4')?'mp4':'webm';await ingestVideo(new File([rr.blob],`tu-lieu-${Date.now()}.${ext}`,{type:rr.blob.type}),rr.duration);$('#camera-status').textContent=rr.portrait?'Đã lưu video dọc 720×1280 (9:16).':'Đã lưu video ngang.'}finally{$('#stop-record').hidden=true;$('#record-time').hidden=true;closeCamera()}});
- $('#stop-record').onclick=()=>S.camera.stop();$('#close-camera').onclick=()=>{closeCamera();selectVideo(S.selectedVideo)};$('#camera-ratio').onchange=()=>{const wasOpen=!!S.camera.stream;applyCameraRatioUI();if(wasOpen){closeCamera();$('#camera-status').textContent='Đã đổi tỷ lệ khung hình. Bấm Mở camera để áp dụng '+($('#camera-ratio').value==='portrait'?'9:16':'16:9')+'.'}};
+ $('#open-camera').onclick=()=>busy($('#open-camera'),async()=>{const portrait=$('#camera-ratio').value==='portrait';applyCameraRatioUI();const stream=await S.camera.open({facing:$('#camera-facing').value,portrait,audio:$('#camera-audio').checked});const p=$('#camera-video');p.removeAttribute('src');p.srcObject=stream;p.controls=false;p.muted=true;await p.play();$('#camera-empty').hidden=true;$('#start-record').disabled=false;$('#switch-camera').disabled=false;$('#close-camera').hidden=false;$('#camera-facing').value=S.camera.facing;$('#camera-status').textContent=portrait?'Camera dọc 9:16 đã sẵn sàng.':'Camera đã sẵn sàng.'});
+ $('#start-record').onclick=()=>busy($('#start-record'),async()=>{$('#stop-record').hidden=false;$('#record-time').hidden=false;$('#camera-ratio').disabled=true;try{const rr=await S.camera.start(179,t=>$('#record-time').textContent='REC '+clock(t));const ext=rr.blob.type.includes('mp4')?'mp4':'webm';await ingestVideo(new File([rr.blob],`tu-lieu-${Date.now()}.${ext}`,{type:rr.blob.type}),rr.duration);$('#camera-status').textContent=rr.portrait?'Đã lưu video dọc 9:16.':'Đã lưu video.'}finally{$('#camera-ratio').disabled=false;$('#stop-record').hidden=true;$('#record-time').hidden=true;closeCamera()}});
+ $('#switch-camera').onclick=()=>busy($('#switch-camera'),async()=>{const next=S.camera.facing==='user'?'environment':'user';const switched=await S.camera.switchFacing(next);$('#camera-facing').value=switched.facing;$('#camera-status').textContent=switched.facing==='environment'?'Đã chuyển sang camera sau.':'Đã chuyển sang camera trước.'},'#camera-status');
+ $('#camera-facing').onchange=async e=>{if(!S.camera.stream)return;const el=e.target;el.disabled=true;try{const switched=await S.camera.switchFacing(el.value);el.value=switched.facing;$('#camera-status').textContent=switched.facing==='environment'?'Đã chuyển sang camera sau.':'Đã chuyển sang camera trước.'}catch(err){el.value=S.camera.facing;toast(err.message||'Không đổi được camera.',true)}finally{el.disabled=false}};
+ $('#stop-record').onclick=()=>S.camera.stop();$('#close-camera').onclick=()=>{closeCamera();selectVideo(S.selectedVideo)};$('#camera-ratio').onchange=()=>{if(S.camera.recording){$('#camera-ratio').value=S.camera.portrait?'portrait':'landscape';return toast('Hãy dừng quay trước khi đổi tỷ lệ khung hình.',true)}const wasOpen=!!S.camera.stream;applyCameraRatioUI();if(wasOpen){closeCamera();$('#camera-status').textContent='Đã đổi tỷ lệ khung hình. Bấm Mở camera để áp dụng '+($('#camera-ratio').value==='portrait'?'9:16':'16:9')+'.'}};
  $('#choose-video').onclick=()=>$('#video-file').click();$('#video-file').onchange=e=>{const f=e.target.files[0];e.target.value='';if(f)busy($('#choose-video'),()=>ingestVideo(f),'#camera-status')};
  applyCameraRatioUI();
  bindCloneEvents();
  $('#analyze-btn').onclick=()=>busy($('#analyze-btn'),runAnalysis,'#analysis-status');
- $('#analysis-to-script').onclick=()=>{$('#script-editor').value=$('#analysis-script').value;saveDraft();updateCounts();navigate('script')};
+ $('#analysis-go-script').onclick=()=>navigate('script');
  $('#text-provider').onchange=()=>renderSettings();
  $('#generate-script').onclick=()=>busy($('#generate-script'),async()=>{const p=$('#text-provider').value;ensureProvider(p);const r=await api('text',{provider:p,prompt:$('#script-prompt').value,duration:Number($('#script-duration').value),style:$('#script-style').value,context:$('#include-analysis').checked&&videoAsset()?.analysis?JSON.stringify(videoAsset().analysis):''});$('#script-editor').value=r.text;saveDraft();updateCounts();$('#script-status').textContent='Đã tạo bằng '+r.model},'#script-status');
  for(const s of ['#script-editor','#script-prompt','#voice-text','#analysis-brief'])$(s).oninput=()=>{saveDraft();updateCounts()};
@@ -424,6 +436,7 @@ async function boot(){
  if(!S.session.providers.deepseek&&S.session.providers.openai)$('#text-provider').value='openai';
  renderVideoLibrary();selectVideo(S.selectedVideo);renderCloneState();if(S.session.role==='admin')renderSettings();updateCounts();
  const latest=S.assets.filter(a=>a.kind==='audio').sort((a,b)=>b.createdAt-a.createdAt)[0];if(latest)showAudio(latest);
+ ensureVideoThumbnails().then(()=>renderVideoLibrary()).catch(()=>{});
 }
 loginScreen();
 boot().catch(e=>{S.session=null;if(e.status!==401){loginScreen();$('#login-error').textContent=e.message}});

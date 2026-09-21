@@ -141,17 +141,17 @@ test('clone timing uses active speech, adaptive speed and tight per-segment tole
 });
 
 
-test('9:16 recorder creates a real 720x1280 canvas stream instead of trusting camera ideal constraints',async()=>{
+test('camera recorder uses a fixed canvas output for true 16:9 and 9:16 recording',async()=>{
   const frontend=await readFile('public/app.js','utf8');
   const media=await readFile('public/media.js','utf8');
   const css=await readFile('public/styles.css','utf8');
-  assert.match(media,/canvas\.width = 720/);
-  assert.match(media,/canvas\.height = 1280/);
-  assert.match(media,/const targetRatio = 9 \/ 16/);
+  assert.match(media,/canvas\.width = this\.portrait \? 720 : 1280/);
+  assert.match(media,/canvas\.height = this\.portrait \? 1280 : 720/);
+  assert.match(media,/const targetRatio = canvas\.width \/ canvas\.height/);
   assert.match(media,/canvas\.captureStream\(30\)/);
-  assert.match(media,/new MediaStream\(\[videoTrack, \.\.\.audioTracks\]\)/);
-  assert.match(media,/videoBitsPerSecond = this\.portrait \? 2600000 : 1500000/);
-  assert.match(frontend,/Camera đang xuất khung dọc thật 720×1280 \(9:16\)/);
+  assert.match(media,/this\.stream = new MediaStream\(\[videoTrack, \.\.\.this\.rawStream\.getAudioTracks\(\)\]\)/);
+  assert.match(media,/videoBitsPerSecond = this\.portrait \? 2600000 : 2200000/);
+  assert.match(frontend,/Camera dọc 9:16 đã sẵn sàng/);
   assert.match(frontend,/applyCameraRatioUI/);
   assert.match(css,/\.camera-box\.portrait\{[^}]*aspect-ratio:9\/16/);
 });
@@ -166,7 +166,7 @@ test('video analysis uses smart scene-change frames and DeepSeek Vision only',as
   const api=await readFile('api/index.js','utf8');
   const env=await readFile('.env.example','utf8');
   assert.match(frontend,/detectSceneFrames/);
-  assert.match(frontend,/Phân tích bằng DeepSeek/);
+  assert.match(frontend,/Phân tích video/);
   assert.match(frontend,/scene-sensitivity/);
   assert.match(frontend,/mode:'scene_frames'/);
   assert.doesNotMatch(frontend,/analysis-mode|frame-count|google-start|google-file|Google Gemini/);
@@ -185,4 +185,45 @@ test('video analysis uses smart scene-change frames and DeepSeek Vision only',as
   assert.doesNotMatch(api,/google-start|google-chunk|google-file|google-delete|GOOGLE_API_KEY/);
   assert.doesNotMatch(env,/GOOGLE_API_KEY|GOOGLE_MODEL/);
   assert.match(env,/DEEPSEEK_VISION_MODEL=deepseek-flash/);
+});
+
+
+test('media page supports live front/rear camera switching during recording',async()=>{
+  const frontend=await readFile('public/app.js','utf8');
+  const media=await readFile('public/media.js','utf8');
+  assert.match(frontend,/id="switch-camera"/);
+  assert.match(frontend,/S\.camera\.switchFacing\(next\)/);
+  assert.match(frontend,/Đã chuyển sang camera sau/);
+  assert.match(media,/async switchFacing\(nextFacing\)/);
+  assert.match(media,/facingMode: \{ exact: next \}/);
+  assert.match(media,/new MediaStream\(\[videoTrack, \.\.\.this\.rawStream\.getAudioTracks\(\)\]\)/);
+  assert.match(media,/canvas\.width = this\.portrait \? 720 : 1280/);
+  assert.match(media,/canvas\.height = this\.portrait \? 1280 : 720/);
+});
+
+test('media page hides provider branding and detailed analysis output',async()=>{
+  const frontend=await readFile('public/app.js','utf8');
+  const start=frontend.indexOf('function mediaMarkup(){');
+  const end=frontend.indexOf('function scriptMarkup(){',start);
+  const mediaMarkup=frontend.slice(start,end);
+  assert.doesNotMatch(mediaMarkup,/DeepSeek|Lấy frame thông minh|Kết quả phân tích|analysis-summary|analysis-scenes|analysis-script/);
+  assert.match(mediaMarkup,/Phân tích kịch bản/);
+  assert.match(mediaMarkup,/Phân tích video/);
+  assert.match(mediaMarkup,/id="analysis-complete"/);
+  assert.match(mediaMarkup,/Tiếp tục sang Viết kịch bản/);
+  assert.match(frontend,/\$\('#analysis-go-script'\)\.onclick=\(\)=>navigate\('script'\)/);
+});
+
+test('video library persists clear thumbnail images and backfills older videos',async()=>{
+  const frontend=await readFile('public/app.js','utf8');
+  const media=await readFile('public/media.js','utf8');
+  const css=await readFile('public/styles.css','utf8');
+  assert.match(media,/export async function createVideoThumbnail/);
+  assert.match(media,/Math\.sqrt\(variance\)/);
+  assert.match(frontend,/thumbnail=await createVideoThumbnail/);
+  assert.match(frontend,/async function ensureVideoThumbnails/);
+  assert.match(frontend,/ensureVideoThumbnails\(\)\.then/);
+  assert.match(frontend,/asset-thumb/);
+  assert.match(frontend,/<img src=/);
+  assert.match(css,/\.asset-thumb video,\.asset-thumb img/);
 });
