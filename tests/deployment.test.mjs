@@ -163,7 +163,7 @@ test('Gemini analysis defaults to stable 3.5 Flash-Lite and falls back on model 
   assert.match(source,/process\.env\.GOOGLE_MODEL \|\| 'gemini-3\.5-flash-lite'/);
   assert.match(source,/GOOGLE_ANALYSIS_FALLBACKS = \['gemini-3\.5-flash-lite','gemini-3\.6-flash','gemini-2\.5-flash-lite'\]/);
   assert.match(source,/response\.status === 404/);
-  assert.match(source,/thinkingLevel: 'low'/);
+  assert.match(source,/thinkingLevel: model\.includes\('flash-lite'\) \? 'minimal' : 'low'/);
   assert.match(env,/GOOGLE_MODEL=gemini-3\.5-flash-lite/);
 });
 
