@@ -188,7 +188,7 @@ test('video analysis uses smart scene-change frames and DeepSeek Vision only',as
 });
 
 
-test('media page supports mobile-safe live front/rear camera switching during recording',async()=>{
+test('media page uses verified multi-strategy front/rear camera switching',async()=>{
   const frontend=await readFile('public/app.js','utf8');
   const media=await readFile('public/media.js','utf8');
   assert.match(frontend,/id="switch-camera"/);
@@ -196,15 +196,21 @@ test('media page supports mobile-safe live front/rear camera switching during re
   assert.match(frontend,/Đã chuyển sang camera sau/);
   assert.match(media,/async videoInputs\(\)/);
   assert.match(media,/enumerateDevices\(\)/);
-  assert.match(media,/pickVideoInput\(devices, oldDeviceId, next\)/);
-  assert.match(media,/deviceId: \{ exact: deviceId \}/);
+  assert.match(media,/videoInputCandidates\(devices, currentId, facing\)/);
+  assert.match(media,/async tryApplyFacing\(next\)/);
+  assert.match(media,/applyConstraints\(\{ facingMode: \{ exact: next \} \}\)/);
+  assert.match(media,/deviceId: \{ exact: device\.deviceId \}/);
   assert.match(media,/facingMode: \{ exact: facing \}/);
+  assert.match(media,/trackMatchesFacing/);
   assert.match(media,/oldVideoTracks\.forEach\(t => t\.stop\(\)\)/);
+  assert.match(media,/await this\.waitCameraRelease\(320\)/);
+  assert.match(media,/this\.sourceVideo\.srcObject = null/);
   assert.match(media,/restartDrawLoop\(\)/);
-  assert.match(media,/Best effort recovery of the original camera/);
+  assert.match(media,/camera_switch_failed/);
   const releaseAt=media.indexOf('oldVideoTracks.forEach(t => t.stop())');
-  const acquireAt=media.indexOf("fresh = await this.acquireVideo",releaseAt);
-  assert.ok(releaseAt>=0&&acquireAt>releaseAt,'old physical camera must be released before acquiring the next one');
+  const waitAt=media.indexOf('await this.waitCameraRelease(320)',releaseAt);
+  const acquireAt=media.indexOf('await this.acquireVideoCandidates',waitAt);
+  assert.ok(releaseAt>=0&&waitAt>releaseAt&&acquireAt>waitAt,'camera must be detached, released, then reacquired');
   assert.match(media,/this\.stream = new MediaStream\(\[videoTrack, \.\.\.this\.rawStream\.getAudioTracks\(\)\]\)/);
   assert.match(media,/canvas\.width = this\.portrait \? 720 : 1280/);
   assert.match(media,/canvas\.height = this\.portrait \? 1280 : 720/);
