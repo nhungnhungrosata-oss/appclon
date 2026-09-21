@@ -1,6 +1,6 @@
-import { authenticate, users, verifyPassword, safeEqual, sessionCookie, checkOrigin, readBody, readJson, text, json, publicError, sha, fail, secret, keyHint } from '../lib/core.mjs';
+import { authenticate, users, verifyPassword, safeEqual, sessionCookie, checkOrigin, readJson, text, json, publicError, sha, fail, secret, keyHint } from '../lib/core.mjs';
 import { hasRedis, limit, get, setPersistent } from '../lib/store.mjs';
-import { models, generateText, vbeeSubmit, vbeeStatus, vbeeAudio, assignedVoice, analyze, googleStart, googleChunk, googleFile } from '../lib/providers.mjs';
+import { models, generateText, vbeeSubmit, vbeeStatus, vbeeAudio, assignedVoice, analyze } from '../lib/providers.mjs';
 import { transcribeCloneChunk } from '../lib/video-clone.mjs';
 
 export default async function handler(req, res) {
@@ -48,7 +48,6 @@ export default async function handler(req, res) {
       models: models(),
       providers: {
         vbee: !!(process.env.VBEE_APP_ID && (process.env.VBEE_TOKEN || process.env.VBEE_ACCESS_TOKEN)),
-        google: !!process.env.GOOGLE_API_KEY,
         openai: !!process.env.OPENAI_API_KEY,
         deepseek: !!process.env.DEEPSEEK_API_KEY
       },
@@ -95,17 +94,9 @@ export default async function handler(req, res) {
     const user = session.username;
     await limit(`burst:${sha(user)}`, 240, 60);
 
-    if (action === 'google-chunk') {
-      const bytes = await readBody(req, 2 * 1024 * 1024);
-      return json(res, await googleChunk(user, req.headers['x-upload-ticket'], bytes));
-    }
-
     const b = await readJson(req);
     if (action === 'text') return json(res, await generateText(user, b));
     if (action === 'analysis') return json(res, await analyze(user, b));
-    if (action === 'google-start') return json(res, await googleStart(user, b));
-    if (action === 'google-file') return json(res, await googleFile(user, b.fileToken));
-    if (action === 'google-delete') return json(res, await googleFile(user, b.fileToken, true));
 
     if (action === 'tts-submit') {
       const callbackBase = `https://${req.headers.host}`;

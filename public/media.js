@@ -61,26 +61,122 @@ export async function durationOf(blob, kind = 'video', hint = 0) {
     throw new Error('Không đọc được thời lượng. Chuyển video sang MP4 trước khi tải lên.');
   } finally { media.removeAttribute('src'); media.load(); URL.revokeObjectURL(url); }
 }
-export async function sampleFrames(blob, duration, count = 24, progress = () => {}) {
-  const video = document.createElement('video'); const url = URL.createObjectURL(blob);
-  video.muted = true; video.playsInline = true; video.preload = 'auto';
-  try {
-    const ready = event(video, 'loadeddata'); video.src = url; await ready;
-    const canvas = document.createElement('canvas');
-    const ratio = Math.min(1, 448 / Math.max(video.videoWidth, video.videoHeight));
-    canvas.width = Math.max(1, Math.round(video.videoWidth * ratio)); canvas.height = Math.max(1, Math.round(video.videoHeight * ratio));
-    const context = canvas.getContext('2d');
-    if (!context || !video.videoWidth) throw new Error('Không giải mã được video.');
-    count = Math.max(1, Math.min(48, count)); const frames = [];
-    for (let i = 0; i < count; i++) {
-      const time = Math.max(0, Math.min(duration - 0.06, count === 1 ? 0.01 : i / (count - 1) * (duration - 0.06)));
-      if (Math.abs(video.currentTime - time) > 0.005) { const seek = event(video, 'seeked'); video.currentTime = time; await seek; }
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const data = canvas.toDataURL('image/jpeg', 0.6).split(',')[1];
-      frames.push({ time: Number(time.toFixed(3)), data }); progress(i + 1, count);
+function clampScene(v,min,max){return Math.max(min,Math.min(max,v))}
+function medianScene(values){
+  if(!values.length)return 0;
+  const a=[...values].sort((x,y)=>x-y),mid=Math.floor(a.length/2);
+  return a.length%2?a[mid]:(a[mid-1]+a[mid])/2;
+}
+function sceneSignature(ctx,w,h){
+  const {data}=ctx.getImageData(0,0,w,h);
+  const hist=new Float32Array(32),blocks=new Float32Array(4*4*3);
+  const counts=new Uint16Array(16);
+  for(let y=0;y<h;y++){
+    const by=Math.min(3,Math.floor(y/h*4));
+    for(let x=0;x<w;x++){
+      const p=(y*w+x)*4,r=data[p],g=data[p+1],b=data[p+2];
+      const l=(r*0.2126+g*0.7152+b*0.0722);
+      hist[Math.min(31,Math.floor(l/8))]++;
+      const bx=Math.min(3,Math.floor(x/w*4)),bi=by*4+bx;
+      blocks[bi*3]+=r;blocks[bi*3+1]+=g;blocks[bi*3+2]+=b;counts[bi]++;
     }
-    return frames;
-  } finally { video.removeAttribute('src'); video.load(); URL.revokeObjectURL(url); }
+  }
+  const pixels=Math.max(1,w*h);
+  for(let i=0;i<hist.length;i++)hist[i]/=pixels;
+  for(let i=0;i<16;i++){
+    const n=Math.max(1,counts[i])*255;
+    blocks[i*3]/=n;blocks[i*3+1]/=n;blocks[i*3+2]/=n;
+  }
+  return {hist,blocks};
+}
+function sceneDistance(a,b){
+  let hist=0,block=0;
+  for(let i=0;i<a.hist.length;i++)hist+=Math.abs(a.hist[i]-b.hist[i]);
+  hist*=0.5;
+  for(let i=0;i<a.blocks.length;i++)block+=Math.abs(a.blocks[i]-b.blocks[i]);
+  block/=a.blocks.length;
+  return clampScene(hist*0.62+block*0.38,0,1);
+}
+async function seekVideo(video,time){
+  const t=Math.max(0,Math.min(Math.max(0,video.duration-0.04),time));
+  if(Math.abs(video.currentTime-t)<=0.012)return;
+  const done=event(video,'seeked',12000);video.currentTime=t;await done;
+}
+export async function detectSceneFrames(blob,duration,progress=()=>{},options={}){
+  const video=document.createElement('video'),url=URL.createObjectURL(blob);
+  video.muted=true;video.playsInline=true;video.preload='auto';
+  try{
+    const ready=event(video,'loadeddata');video.src=url;await ready;
+    if(!video.videoWidth||!video.videoHeight)throw new Error('Không giải mã được video.');
+    const actual=Number.isFinite(video.duration)&&video.duration>0?video.duration:duration;
+    if(!Number.isFinite(actual)||actual<=0||actual>180.5)throw new Error('Video cần dài tối đa 3 phút.');
+
+    const scan=document.createElement('canvas'),long=Math.max(video.videoWidth,video.videoHeight);
+    const scanScale=Math.min(1,96/long);
+    scan.width=Math.max(24,Math.round(video.videoWidth*scanScale));
+    scan.height=Math.max(24,Math.round(video.videoHeight*scanScale));
+    const scanCtx=scan.getContext('2d',{willReadFrequently:true});
+    if(!scanCtx)throw new Error('Không tạo được bộ phát hiện chuyển cảnh.');
+
+    const interval=actual<=30?.35:actual<=90?.55:.8;
+    const times=[];for(let t=.01;t<actual-.04;t+=interval)times.push(t);
+    if(!times.length)times.push(.01);
+    const finalTime=Math.max(.01,actual-.05);
+    if(finalTime-times.at(-1)>interval*.4)times.push(finalTime);
+    const points=[];let previous=null;
+    for(let i=0;i<times.length;i++){
+      await seekVideo(video,times[i]);
+      scanCtx.drawImage(video,0,0,scan.width,scan.height);
+      const sig=sceneSignature(scanCtx,scan.width,scan.height);
+      const delta=previous?sceneDistance(previous,sig):1;
+      points.push({time:times[i],sig,delta});previous=sig;
+      progress(i+1,times.length,'scan');
+    }
+
+    const deltas=points.slice(1).map(x=>x.delta);
+    const med=medianScene(deltas);
+    const mad=medianScene(deltas.map(x=>Math.abs(x-med)));
+    const sensitivity=options.sensitivity==='high'?.85:options.sensitivity==='strict'?1.18:1;
+    const threshold=clampScene((med+Math.max(.055,mad*3.2))*sensitivity,.13,.34);
+    const minGap=Math.max(.7,interval*1.15);
+    const candidates=[];
+    for(let i=1;i<points.length;i++){
+      const p=points[i],prev=points[i-1],next=points[i+1];
+      const localMax=!next||p.delta>=next.delta*.94;
+      if(p.delta>=threshold&&localMax&&(!candidates.length||p.time-candidates.at(-1).time>=minGap)){
+        candidates.push({...p,score:p.delta});
+      }else if(candidates.length&&p.delta>=threshold*1.45&&p.time-candidates.at(-1).time<minGap&&p.delta>candidates.at(-1).score){
+        candidates[candidates.length-1]={...p,score:p.delta};
+      }
+    }
+
+    const maxFrames=Math.max(2,Math.min(36,Number(options.maxFrames)||28));
+    let selected=[{...points[0],score:1},...candidates];
+    if(selected.length>maxFrames){
+      const first=selected[0],rest=selected.slice(1).sort((a,b)=>b.score-a.score).slice(0,maxFrames-1);
+      selected=[first,...rest].sort((a,b)=>a.time-b.time);
+    }
+
+    const render=document.createElement('canvas'),scale=Math.min(1,512/long);
+    render.width=Math.max(1,Math.round(video.videoWidth*scale));
+    render.height=Math.max(1,Math.round(video.videoHeight*scale));
+    const renderCtx=render.getContext('2d');
+    if(!renderCtx)throw new Error('Không tạo được frame phân tích.');
+    const frames=[];
+    for(let i=0;i<selected.length;i++){
+      await seekVideo(video,selected[i].time);
+      renderCtx.drawImage(video,0,0,render.width,render.height);
+      const data=render.toDataURL('image/jpeg',.66).split(',')[1];
+      frames.push({time:Number(selected[i].time.toFixed(3)),data,sceneScore:Number(selected[i].score.toFixed(4))});
+      progress(i+1,selected.length,'render');
+    }
+    return {
+      frames,
+      scanned:points.length,
+      interval:Number(interval.toFixed(2)),
+      threshold:Number(threshold.toFixed(4))
+    };
+  }finally{video.removeAttribute('src');video.load();URL.revokeObjectURL(url)}
 }
 export async function audioReference(file) {
   if (file.size > 25 * 1024 * 1024) throw new Error('Mẫu giọng tối đa 25 MB.');

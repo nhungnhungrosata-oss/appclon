@@ -7,6 +7,7 @@ process.env.APP_PASSWORD='test-only-password-123456';
 process.env.SESSION_SECRET='test-only-secret-DO-NOT-USE-IN-PRODUCTION-123456';
 process.env.APP_USERS_JSON='{}';
 process.env.OPENAI_API_KEY='sk-proj-testkey-9CgA';
+process.env.DEEPSEEK_API_KEY='deepseek-test-key';
 delete process.env.UPSTASH_REDIS_REST_URL;
 delete process.env.UPSTASH_REDIS_REST_TOKEN;
 
@@ -23,7 +24,7 @@ test('health is public and session is protected',async()=>{
 });
 test('admin login exposes Vbee provider state without secrets',async()=>{
   const r=await req('login',{username:'admin',password:process.env.APP_PASSWORD}); assert.equal(r.status,200); cookie=r.headers.get('set-cookie').split(';')[0];
-  const d=await (await req('session')).json(); assert.equal(d.username,'admin'); assert.equal(d.role,'admin'); assert.ok('vbee' in d.providers); assert.ok(!('sync' in d.providers)); assert.ok(!('fish' in d.providers)); assert.ok(!('lipSync' in d));
+  const d=await (await req('session')).json(); assert.equal(d.username,'admin'); assert.equal(d.role,'admin'); assert.ok('vbee' in d.providers); assert.equal(d.providers.deepseek,true); assert.ok(!('google' in d.providers)); assert.ok(!('sync' in d.providers)); assert.ok(!('fish' in d.providers)); assert.ok(!('lipSync' in d));
   assert.ok(!JSON.stringify(d).includes(process.env.SESSION_SECRET));
 });
 test('admin state lists ten children plus admin',async()=>{
@@ -32,8 +33,8 @@ test('admin state lists ten children plus admin',async()=>{
 test('adding a voice fails closed until shared Redis is configured',async()=>{
   const r=await req('admin-add-voice',{label:'Giọng Pro',code:'professional-voice-code'}); assert.equal(r.status,503); assert.equal((await r.json()).code,'REDIS_REQUIRED');
 });
-test('Fish and lip-sync routes no longer exist',async()=>{
-  for(const action of ['tts','lip-submit','lip-status']) assert.equal((await req(action,{})).status,404);
+test('removed provider routes no longer exist',async()=>{
+  for(const action of ['tts','lip-submit','lip-status','google-start','google-file','google-delete','google-chunk']) assert.equal((await req(action,{})).status,404);
 });
 test('cross-origin login is rejected',async()=>{
   cookie=''; assert.equal((await req('login',{username:'admin',password:process.env.APP_PASSWORD},'https://evil.test')).status,403);
