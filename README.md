@@ -72,7 +72,7 @@ npm run build
 npm test
 ```
 
-CI không gọi API Vbee/Google/OpenAI/DeepSeek thật nên không phát sinh phí.
+CI không gọi API Vbee/OpenAI/DeepSeek thật nên không phát sinh phí.
 
 
 ## Module Clon giọng Video
