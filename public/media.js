@@ -533,9 +533,12 @@ export class Recorder {
   videoConstraints(facing = this.facing) {
     return {
       facingMode: { ideal: facing },
-      width: { ideal: this.portrait ? 720 : 1280 },
-      height: { ideal: this.portrait ? 1280 : 720 },
-      aspectRatio: { ideal: this.portrait ? 9 / 16 : 16 / 9 },
+      // For portrait output, request a wider 4:3 camera feed instead of asking
+      // the phone for 9:16 directly. Many phones satisfy 9:16 by digitally
+      // cropping the sensor, which makes faces look unnaturally close.
+      width: { ideal: 1280 },
+      height: { ideal: this.portrait ? 960 : 720 },
+      aspectRatio: { ideal: this.portrait ? 4 / 3 : 16 / 9 },
       frameRate: { ideal: 25, max: 30 }
     };
   }
