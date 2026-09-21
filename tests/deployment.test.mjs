@@ -157,23 +157,32 @@ test('9:16 recorder creates a real 720x1280 canvas stream instead of trusting ca
 });
 
 
-test('Gemini analysis defaults to stable 3.5 Flash-Lite and falls back on model 404',async()=>{
-  const source=await readFile('lib/providers.mjs','utf8');
+
+
+test('video analysis uses smart scene-change frames and DeepSeek Vision only',async()=>{
+  const frontend=await readFile('public/app.js','utf8');
+  const media=await readFile('public/media.js','utf8');
+  const providers=await readFile('lib/providers.mjs','utf8');
+  const api=await readFile('api/index.js','utf8');
   const env=await readFile('.env.example','utf8');
-  assert.match(source,/process\.env\.GOOGLE_MODEL \|\| 'gemini-3\.5-flash-lite'/);
-  assert.match(source,/GOOGLE_ANALYSIS_FALLBACKS = \['gemini-3\.5-flash-lite','gemini-3\.6-flash','gemini-2\.5-flash-lite'\]/);
-  assert.match(source,/response\.status === 404/);
-  assert.match(source,/thinkingLevel: model\.includes\('flash-lite'\) \? 'minimal' : 'low'/);
-  assert.match(env,/GOOGLE_MODEL=gemini-3\.5-flash-lite/);
-});
-
-
-test('Gemini 503 uses bounded retry/backoff and cross-model fallback',async()=>{
-  const source=await readFile('lib/providers.mjs','utf8');
-  assert.match(source,/response\.status === 503/);
-  assert.match(source,/google_model_503_retry/);
-  assert.match(source,/retryDelay\(response, attempt\)/);
-  assert.match(source,/attempt < 2/);
-  assert.match(source,/Google Gemini đang tạm quá tải/);
-  assert.match(source,/thinkingLevel: model\.includes\('flash-lite'\) \? 'minimal' : 'low'/);
+  assert.match(frontend,/detectSceneFrames/);
+  assert.match(frontend,/Phân tích bằng DeepSeek/);
+  assert.match(frontend,/scene-sensitivity/);
+  assert.match(frontend,/mode:'scene_frames'/);
+  assert.doesNotMatch(frontend,/analysis-mode|frame-count|google-start|google-file|Google Gemini/);
+  assert.match(media,/export async function detectSceneFrames/);
+  assert.match(media,/sceneSignature/);
+  assert.match(media,/sceneDistance/);
+  assert.match(media,/medianScene/);
+  assert.match(media,/mad\*3\.2/);
+  assert.match(media,/localMax/);
+  assert.match(media,/maxFrames/);
+  assert.match(providers,/DEEPSEEK_VISION_MODEL/);
+  assert.match(providers,/type: 'image_url'/);
+  assert.match(providers,/response_format: \{ type: 'json_object' \}/);
+  assert.match(providers,/thinking: \{ type: 'disabled' \}/);
+  assert.doesNotMatch(providers,/generativelanguage\.googleapis|GOOGLE_API_KEY|googleGenerateAnalysis|googleStart|googleChunk|googleFile/);
+  assert.doesNotMatch(api,/google-start|google-chunk|google-file|google-delete|GOOGLE_API_KEY/);
+  assert.doesNotMatch(env,/GOOGLE_API_KEY|GOOGLE_MODEL/);
+  assert.match(env,/DEEPSEEK_VISION_MODEL=deepseek-flash/);
 });
