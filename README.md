@@ -3,7 +3,7 @@
 ClipLab chạy Node.js 22 + Vercel. Chức năng hiện tại:
 
 - quay hoặc tải video tư liệu;
-- phân tích video bằng Google Gemini;
+- phân tích video bằng DeepSeek Vision với frame chuyển cảnh thông minh;
 - viết kịch bản bằng DeepSeek hoặc OpenAI;
 - tạo MP3 bằng Vbee AIVoice;
 - **Clon giọng Video**: nhận dạng lời thoại/timeline, tái tạo bằng giọng Ibee được cấp rồi thay track tiếng của video ngay trên trình duyệt;
@@ -33,9 +33,8 @@ Vbee:
 
 Các AI khác:
 
-- `GOOGLE_API_KEY`
-- `GOOGLE_MODEL=gemini-3.5-flash-lite` — model mặc định cho phân tích ảnh/video; nếu model cấu hình trả 404, app tự fallback sang các model stable hỗ trợ đa phương thức
-- `DEEPSEEK_API_KEY`
+- `DEEPSEEK_API_KEY` — dùng cho viết kịch bản và phân tích frame video
+- `DEEPSEEK_VISION_MODEL=deepseek-flash` — model ảnh cho phân tích video
 - `OPENAI_API_KEY` — dùng cả viết kịch bản và nhận dạng lời thoại cho Clon giọng Video
 - `OPENAI_TRANSCRIBE_MODEL=whisper-1`
 
@@ -97,11 +96,17 @@ Giới hạn chất lượng: phiên bản đầu tối ưu cho một người n
 Admin có thể vào **Thiết lập** để xem fingerprint an toàn của key OpenAI mà production đang đọc (chỉ prefix loại key + 4 ký tự cuối và độ dài, không trả secret đầy đủ). App tự bỏ khoảng trắng hoặc một cặp dấu nháy vô tình dính khi copy Environment Variable. Sau khi đổi `OPENAI_API_KEY` trên Vercel phải Redeploy để deployment mới nhận giá trị.
 
 
-## Gemini model fallback
 
-Phân tích video dùng GenerateContent API. Model mặc định là `gemini-3.5-flash-lite`. Nếu biến `GOOGLE_MODEL` trên Vercel đang trỏ tới model cũ và Google trả HTTP 404, app tự thử lần lượt các model stable: `gemini-3.5-flash-lite`, `gemini-3.6-flash`, rồi `gemini-2.5-flash-lite`. Fallback chỉ xảy ra khi model trả 404; các lỗi key/quota khác vẫn được báo ngay.
+## Phân tích video bằng DeepSeek Vision
 
+ClipLab không gửi nguyên video lên AI. Trình duyệt quét video ở độ phân giải nhỏ, đo thay đổi histogram sáng và bố cục màu theo từng khối, sau đó chỉ xuất JPEG khi phát hiện cảnh mới. Cảnh lặp bị bỏ qua. Video ngắn được quét dày hơn; video dài quét thưa hơn để cân bằng tốc độ.
 
-### Gemini 503 / tạm quá tải
+Luồng:
+1. Quét video cục bộ và tính điểm thay đổi cảnh.
+2. Dùng ngưỡng động dựa trên median + MAD để thích nghi với video tĩnh hoặc nhiều chuyển động.
+3. Giữ frame đầu tiên và các local-maximum vượt ngưỡng; giới hạn tối đa 28 frame gửi AI.
+4. Render frame đã chọn tối đa 512 px cạnh dài, JPEG.
+5. Gửi các frame kèm timestamp sang DeepSeek `deepseek-flash` bằng Vision Chat Completions.
+6. DeepSeek trả JSON gồm summary, hook, scenes, script, warnings.
 
-Google định nghĩa HTTP 503 `UNAVAILABLE` là lỗi tạm thời và khuyến nghị retry theo exponential backoff. Phân tích video trong ClipLab sẽ retry cùng model tối đa một lần; nếu vẫn 503, app chuyển sang model stable fallback tiếp theo. Nếu tất cả model đều 503, app báo rõ trạng thái quá tải thay vì lỗi chung.
+DeepSeek trong bước này không nhận audio, vì vậy app không được suy đoán lời thoại từ video. Module **Clon giọng Video** vẫn dùng OpenAI transcription riêng để lấy lời nói/timestamp.
