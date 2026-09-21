@@ -1,4 +1,4 @@
-import { initDB, put, all, remove, clear, blobUrl, releaseUrls, download, pause, cleanMime, durationOf, sampleFrames, toBase64, extractSpeechChunks, composeAlignedSpeech, trimSpeechAudio, replaceVideoAudio, Recorder } from './media.js';
+import { initDB, put, all, remove, clear, blobUrl, releaseUrls, download, pause, cleanMime, durationOf, detectSceneFrames, toBase64, extractSpeechChunks, composeAlignedSpeech, trimSpeechAudio, replaceVideoAudio, Recorder } from './media.js';
 
 const $ = (s, root = document) => root.querySelector(s);
 const $$ = (s, root = document) => [...root.querySelectorAll(s)];
@@ -57,17 +57,17 @@ function loginScreen(){
   $('#login-form').onsubmit=e=>{e.preventDefault();busy($('#login-btn'),async()=>{await api('login',{username:$('#username').value,password:$('#password').value});await boot()},'#login-error')};
 }
 function mediaMarkup(){
- return `<div class="hero"><div><span class="eyebrow">VIDEO MATERIAL</span><h1>Quay hoặc tải <span class="hero-accent">video tư liệu.</span></h1><p>Sau đó dùng Google Gemini để phân tích cảnh và đề xuất lời dẫn.</p></div><span class="pill">${icon('video')} Lưu trên thiết bị</span></div>
+ return `<div class="hero"><div><span class="eyebrow">VIDEO MATERIAL</span><h1>Quay hoặc tải <span class="hero-accent">video tư liệu.</span></h1><p>DeepSeek Vision chỉ nhận các frame khi hệ thống phát hiện video chuyển sang cảnh mới.</p></div><span class="pill">${icon('video')} Lưu trên thiết bị</span></div>
  <div class="media-columns"><section class="panel"><div class="panel-head"><h2>Studio ghi hình</h2><span class="pill green">Tối đa 3 phút</span></div>
  <div class="camera-controls"><select id="camera-facing"><option value="user">Camera trước</option><option value="environment">Camera sau</option></select><select id="camera-ratio"><option value="landscape">Ngang 16:9</option><option value="portrait">Dọc 9:16</option></select><label class="check"><input id="camera-audio" type="checkbox" checked> Micro</label></div>
  <div class="camera-box landscape" id="camera-box"><video id="camera-video" playsinline muted></video><div class="camera-empty" id="camera-empty"><span class="camera-symbol">${icon('video')}</span><strong>Quay tư liệu mới</strong><p>Hoặc tải video có sẵn bên dưới.</p></div><span id="record-time" class="rec-badge" hidden>REC 00:00</span></div>
  <div class="row camera-actions"><button id="open-camera" class="primary">${icon('video')} Mở camera</button><button id="start-record" disabled>${icon('play')} Quay</button><button id="stop-record" class="danger" hidden>${icon('stop')} Dừng</button><button id="close-camera" class="small" hidden>Đóng</button></div>
  <div class="dropzone"><div><strong>Tải video từ máy</strong><p>MP4, WebM, MOV · tối đa 80 MB / 3 phút</p></div><button id="choose-video" class="small">${icon('upload')} Chọn file</button><input id="video-file" type="file" accept="video/mp4,video/webm,video/quicktime,.m4v" hidden></div><p id="camera-status" class="status-line"></p></section>
- <section class="panel"><div class="panel-head"><h2>Phân tích kịch bản</h2>${icon('magic')}</div><div id="analysis-source" class="source-label">Chưa chọn video.</div>
- <div class="mode-grid"><label class="mode"><input type="radio" name="analysis-mode" value="frames" checked><strong>Tiết kiệm</strong><small>AI xem các khung hình, không nghe audio.</small></label><label class="mode"><input type="radio" name="analysis-mode" value="video"><strong>Video đầy đủ</strong><small>Gửi video qua Google Files.</small></label></div>
- <div id="frame-field" class="field"><label>Số khung</label><select id="frame-count"><option value="12">12</option><option value="24" selected>24</option><option value="48">48</option></select></div>
- <div class="field"><label>Yêu cầu phân tích</label><textarea id="analysis-brief" rows="4" maxlength="6000" placeholder="Ví dụ: phân tích cảnh và viết lời dẫn bán hàng tự nhiên"></textarea></div>
- <label class="check"><input id="analysis-consent" type="checkbox">Tôi có quyền sử dụng video và đồng ý gửi dữ liệu cho Google.</label><button id="analyze-btn" class="purple full">Phân tích kịch bản</button><p id="analysis-status" class="status-line"></p><div class="progress" id="analysis-progress" hidden><div></div></div></section></div>
+ <section class="panel"><div class="panel-head"><h2>Phân tích kịch bản · DeepSeek</h2>${icon('magic')}</div><div id="analysis-source" class="source-label">Chưa chọn video.</div>
+ <div class="notice"><strong>Lấy frame thông minh:</strong> ClipLab quét video ở độ phân giải thấp, so sánh đặc trưng màu/bố cục và chỉ xuất JPEG khi phát hiện chuyển cảnh rõ rệt. Cảnh lặp không gửi lại nên giảm số ảnh và chi phí.</div>
+ <div class="field"><label>Độ nhạy phát hiện cảnh</label><select id="scene-sensitivity"><option value="auto" selected>Tự động · khuyên dùng</option><option value="high">Nhạy hơn · bắt nhiều cảnh</option><option value="strict">Chặt hơn · chỉ cảnh thay đổi rõ</option></select></div>
+ <div class="field"><label>Yêu cầu phân tích</label><textarea id="analysis-brief" rows="4" maxlength="6000" placeholder="Ví dụ: phân tích từng cảnh và viết lời dẫn bán hàng tự nhiên"></textarea></div>
+ <label class="check"><input id="analysis-consent" type="checkbox">Tôi có quyền sử dụng video và đồng ý gửi các frame cảnh đã chọn cho DeepSeek. DeepSeek không nhận audio trong bước này.</label><button id="analyze-btn" class="purple full">Phân tích bằng DeepSeek</button><p id="analysis-status" class="status-line"></p><div class="progress" id="analysis-progress" hidden><div></div></div></section></div>
  <section class="panel result" id="analysis-result" hidden><div class="panel-head"><h2>Kết quả phân tích</h2><button id="analysis-to-script" class="small primary">Đưa sang kịch bản</button></div><div id="analysis-summary" class="result-summary"></div><div id="analysis-scenes" class="scene-list"></div><div class="field"><label>Lời dẫn đề xuất</label><textarea id="analysis-script" rows="7"></textarea></div></section>
  <div class="library-heading"><h2>Thư viện video <span id="video-count" class="pill">0</span></h2></div><div id="video-library" class="asset-grid"></div>`;
 }
@@ -157,19 +157,20 @@ function showAnalysis(r){
  $('#analysis-scenes').innerHTML=(r.scenes||[]).map(x=>`<div class="scene"><time>${esc(x.time)}</time><div><p>${esc(x.visual)}</p><p class="suggestion">${esc(x.suggestion)}</p></div></div>`).join('');
 }
 async function runAnalysis(){
- ensureProvider('google');requireConsent('#analysis-consent');const v=videoAsset();if(!v)throw new Error('Chọn video trước.');
- const mode=$('input[name="analysis-mode"]:checked').value,payload={mode,duration:v.duration,brief:$('#analysis-brief').value,consent:true};let fileToken;
- const progress=(n,msg)=>{$('#analysis-progress').hidden=false;$('#analysis-progress>div').style.width=n+'%';$('#analysis-status').textContent=msg};
+ ensureProvider('deepseek');requireConsent('#analysis-consent');const v=videoAsset();if(!v)throw new Error('Chọn video trước.');
+ const progress=(n,msg)=>{$('#analysis-progress').hidden=false;$('#analysis-progress>div').style.width=Math.max(0,Math.min(100,n))+'%';$('#analysis-status').textContent=msg};
  try{
-  if(mode==='frames'){payload.frames=await sampleFrames(v.blob,v.duration,Number($('#frame-count').value),(n,m)=>progress(Math.round(n/m*55),`Lấy khung hình ${n}/${m}`));}
-  else{
-   const init=await api('google-start',{size:v.blob.size,duration:v.duration,mime:v.blob.type,consent:true});let ticket=init.ticket;
-   for(let off=0;off<v.blob.size;off+=init.chunkSize){const chunk=v.blob.slice(off,off+init.chunkSize);const rr=await fetch('/api/index?action=google-chunk',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/octet-stream','X-Upload-Ticket':ticket},body:chunk});const d=await rr.json();if(!rr.ok)throw new Error(d.error||'Upload Google lỗi');if(d.ticket)ticket=d.ticket;if(d.fileToken)fileToken=d.fileToken;progress(Math.round((off+chunk.size)/v.blob.size*60),'Đang tải video...');}
-   for(let i=0;i<60;i++){const f=await api('google-file',{fileToken});if(f.state==='ACTIVE')break;if(f.state==='FAILED')throw new Error('Google không xử lý được video.');await pause(1500);}
-   payload.fileToken=fileToken;
-  }
-  progress(75,'AI đang phân tích...');const result=await api('analysis',payload);v.analysis=result;await put('assets',v);showAnalysis(result);renderVideoLibrary();progress(100,'Hoàn tất');
- }finally{$('#analysis-progress').hidden=true;if(fileToken){try{await api('google-delete',{fileToken})}catch{}}}
+  progress(3,'Đang quét video để tìm điểm chuyển cảnh...');
+  const detected=await detectSceneFrames(v.blob,v.duration,(n,m,phase)=>{
+    if(phase==='scan')progress(5+Math.round(n/m*45),`Đang quét chuyển cảnh ${n}/${m}...`);
+    else progress(52+Math.round(n/m*18),`Đang xuất frame cảnh ${n}/${m}...`);
+  },{sensitivity:$('#scene-sensitivity').value,maxFrames:28});
+  if(!detected.frames.length)throw new Error('Không lấy được frame cảnh từ video.');
+  progress(72,`Phát hiện ${detected.frames.length} cảnh từ ${detected.scanned} điểm quét. Đang gửi DeepSeek...`);
+  const result=await api('analysis',{mode:'scene_frames',duration:v.duration,brief:$('#analysis-brief').value,frames:detected.frames,sceneMeta:{scanned:detected.scanned,interval:detected.interval,threshold:detected.threshold},consent:true});
+  v.analysis={...result,sceneDetection:{frames:detected.frames.length,scanned:detected.scanned,interval:detected.interval,threshold:detected.threshold}};
+  await put('assets',v);showAnalysis(v.analysis);renderVideoLibrary();progress(100,`Hoàn tất · DeepSeek đã xem ${detected.frames.length} cảnh`);
+ }finally{$('#analysis-progress').hidden=true}
 }
 function showAudio(rec){S.latestAudio=rec;$('#audio-output').hidden=false;const player=$('#tts-preview');player.pause();player.removeAttribute('src');player.src=rec.playUrl||rec.remoteUrl||blobUrl(rec);player.load();$('#audio-duration').textContent=rec.playUrl?'Sẵn sàng nghe':rec.remoteUrl?'Link Ibee tạm thời':clock(rec.duration);player.onloadedmetadata=()=>{if(Number.isFinite(player.duration)&&player.duration>0)$('#audio-duration').textContent=clock(player.duration)};player.onerror=()=>{$('#audio-duration').textContent='Không tải được audio';$('#voice-status').textContent='Không phát được audio trực tiếp. Hãy thử lại hoặc tải MP3.'}}
 
@@ -359,7 +360,7 @@ async function renderCloneVideo(){
 
 function renderSettings(){
  const cfg=S.session;
- const defs=[['vbee','Ibee AIVoice','Cấu hình API phía máy chủ'],['google','Google Gemini','GOOGLE_API_KEY'],['deepseek','DeepSeek','DEEPSEEK_API_KEY'],['openai','OpenAI','OPENAI_API_KEY']];
+ const defs=[['vbee','Ibee AIVoice','Cấu hình API phía máy chủ'],['deepseek','DeepSeek Vision + Text','DEEPSEEK_API_KEY'],['openai','OpenAI','OPENAI_API_KEY']];
  $('#provider-list').innerHTML=defs.map(([id,n,e])=>`<div class="provider"><h3>${n}</h3><span class="pill ${cfg.providers[id]?'green':''}">${cfg.providers[id]?'Đã cấu hình':'Chưa cấu hình'}</span><code>${e}</code></div>`).join('');
  $('#limiter-notice').textContent=cfg.limiter==='redis'?'Redis đã kết nối: có thể lưu phân quyền giọng cho nhiều tài khoản.':'Chưa có Upstash Redis: tạo nội dung đa tài khoản và gán giọng sẽ bị chặn để tránh vượt hạn mức.';
  $('#limiter-notice').className=`notice ${cfg.limiter==='redis'?'success':'warning'}`;
@@ -402,7 +403,6 @@ function bindEvents(){
  $('#choose-video').onclick=()=>$('#video-file').click();$('#video-file').onchange=e=>{const f=e.target.files[0];e.target.value='';if(f)busy($('#choose-video'),()=>ingestVideo(f),'#camera-status')};
  applyCameraRatioUI();
  bindCloneEvents();
- $$('input[name="analysis-mode"]').forEach(x=>x.onchange=()=>$('#frame-field').hidden=x.value!=='frames');
  $('#analyze-btn').onclick=()=>busy($('#analyze-btn'),runAnalysis,'#analysis-status');
  $('#analysis-to-script').onclick=()=>{$('#script-editor').value=$('#analysis-script').value;saveDraft();updateCounts();navigate('script')};
  $('#text-provider').onchange=()=>renderSettings();
