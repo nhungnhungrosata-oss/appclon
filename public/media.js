@@ -121,6 +121,8 @@ export async function detectSceneFrames(blob,duration,progress=()=>{},options={}
     const interval=actual<=30?.35:actual<=90?.55:.8;
     const times=[];for(let t=.01;t<actual-.04;t+=interval)times.push(t);
     if(!times.length)times.push(.01);
+    const finalTime=Math.max(.01,actual-.05);
+    if(finalTime-times.at(-1)>interval*.4)times.push(finalTime);
     const points=[];let previous=null;
     for(let i=0;i<times.length;i++){
       await seekVideo(video,times[i]);
