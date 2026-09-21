@@ -34,6 +34,7 @@ Vbee:
 Các AI khác:
 
 - `GOOGLE_API_KEY`
+- `GOOGLE_MODEL=gemini-3.5-flash-lite` — model mặc định cho phân tích ảnh/video; nếu model cấu hình trả 404, app tự fallback sang các model stable hỗ trợ đa phương thức
 - `DEEPSEEK_API_KEY`
 - `OPENAI_API_KEY` — dùng cả viết kịch bản và nhận dạng lời thoại cho Clon giọng Video
 - `OPENAI_TRANSCRIBE_MODEL=whisper-1`
@@ -94,3 +95,8 @@ Giới hạn chất lượng: phiên bản đầu tối ưu cho một người n
 ## Chẩn đoán OpenAI API key
 
 Admin có thể vào **Thiết lập** để xem fingerprint an toàn của key OpenAI mà production đang đọc (chỉ prefix loại key + 4 ký tự cuối và độ dài, không trả secret đầy đủ). App tự bỏ khoảng trắng hoặc một cặp dấu nháy vô tình dính khi copy Environment Variable. Sau khi đổi `OPENAI_API_KEY` trên Vercel phải Redeploy để deployment mới nhận giá trị.
+
+
+## Gemini model fallback
+
+Phân tích video dùng GenerateContent API. Model mặc định là `gemini-3.5-flash-lite`. Nếu biến `GOOGLE_MODEL` trên Vercel đang trỏ tới model cũ và Google trả HTTP 404, app tự thử lần lượt các model stable: `gemini-3.5-flash-lite`, `gemini-3.6-flash`, rồi `gemini-2.5-flash-lite`. Fallback chỉ xảy ra khi model trả 404; các lỗi key/quota khác vẫn được báo ngay.
