@@ -622,10 +622,12 @@ export class Recorder {
     if (next === this.facing) return { facing: this.facing, stream: this.stream };
 
     let fresh;
+    const exact = { ...this.videoConstraints(next), facingMode: { exact: next } };
     try {
-      fresh = await navigator.mediaDevices.getUserMedia({ video: this.videoConstraints(next), audio: false });
+      fresh = await navigator.mediaDevices.getUserMedia({ video: exact, audio: false });
     } catch {
-      throw new Error(next === 'environment' ? 'Không mở được camera sau trên thiết bị này.' : 'Không mở được camera trước trên thiết bị này.');
+      try { fresh = await navigator.mediaDevices.getUserMedia({ video: this.videoConstraints(next), audio: false }); }
+      catch { throw new Error(next === 'environment' ? 'Không mở được camera sau trên thiết bị này.' : 'Không mở được camera trước trên thiết bị này.'); }
     }
     const freshTrack = fresh.getVideoTracks()[0];
     if (!freshTrack) { fresh.getTracks().forEach(t => t.stop()); throw new Error('Không tìm thấy camera cần chuyển.'); }
