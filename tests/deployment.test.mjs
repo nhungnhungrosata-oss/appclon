@@ -141,21 +141,24 @@ test('clone timing uses active speech, adaptive speed and tight per-segment tole
 });
 
 
-test('camera recorder uses a fixed canvas output for true 16:9 and 9:16 recording',async()=>{
+test('camera recorder keeps 9:16 framing natural instead of aggressive center crop',async()=>{
   const frontend=await readFile('public/app.js','utf8');
   const media=await readFile('public/media.js','utf8');
   const css=await readFile('public/styles.css','utf8');
   assert.match(media,/canvas\.width = this\.portrait \? 720 : 1280/);
   assert.match(media,/canvas\.height = this\.portrait \? 1280 : 720/);
-  assert.match(media,/const targetRatio = canvas\.width \/ canvas\.height/);
+  assert.match(media,/drawNaturalPortrait/);
+  assert.match(media,/const containScale = Math\.min/);
+  assert.match(media,/const coverScale = Math\.max/);
+  assert.match(media,/containScale \* 1\.18/);
+  assert.match(media,/blur\(28px\) brightness\(0\.5\)/);
+  assert.match(media,/if \(this\.portrait\) this\.drawNaturalPortrait/);
   assert.match(media,/canvas\.captureStream\(30\)/);
-  assert.match(media,/this\.stream = new MediaStream\(\[videoTrack, \.\.\.this\.rawStream\.getAudioTracks\(\)\]\)/);
   assert.match(media,/videoBitsPerSecond = this\.portrait \? 2600000 : 2200000/);
-  assert.match(frontend,/Camera dọc 9:16 đã sẵn sàng/);
+  assert.match(frontend,/Camera dọc 9:16 đã sẵn sàng với khung hình tự nhiên/);
   assert.match(frontend,/applyCameraRatioUI/);
   assert.match(css,/\.camera-box\.portrait\{[^}]*aspect-ratio:9\/16/);
 });
-
 
 
 
@@ -188,32 +191,19 @@ test('video analysis uses smart scene-change frames and DeepSeek Vision only',as
 });
 
 
-test('media page uses verified multi-strategy front/rear camera switching',async()=>{
+test('media page removes live camera switching and emphasizes orange open/record actions',async()=>{
   const frontend=await readFile('public/app.js','utf8');
   const media=await readFile('public/media.js','utf8');
-  assert.match(frontend,/id="switch-camera"/);
-  assert.match(frontend,/S\.camera\.switchFacing\(next\)/);
-  assert.match(frontend,/Đã chuyển sang camera sau/);
-  assert.match(media,/async videoInputs\(\)/);
-  assert.match(media,/enumerateDevices\(\)/);
-  assert.match(media,/videoInputCandidates\(devices, currentId, facing\)/);
-  assert.match(media,/async tryApplyFacing\(next\)/);
-  assert.match(media,/applyConstraints\(\{ facingMode: \{ exact: next \} \}\)/);
-  assert.match(media,/deviceId: \{ exact: device\.deviceId \}/);
-  assert.match(media,/facingMode: \{ exact: facing \}/);
-  assert.match(media,/trackMatchesFacing/);
-  assert.match(media,/oldVideoTracks\.forEach\(t => t\.stop\(\)\)/);
-  assert.match(media,/await this\.waitCameraRelease\(320\)/);
-  assert.match(media,/this\.sourceVideo\.srcObject = null/);
-  assert.match(media,/restartDrawLoop\(\)/);
-  assert.match(media,/camera_switch_failed/);
-  const releaseAt=media.indexOf('oldVideoTracks.forEach(t => t.stop())');
-  const waitAt=media.indexOf('await this.waitCameraRelease(320)',releaseAt);
-  const acquireAt=media.indexOf('await this.acquireVideoCandidates',waitAt);
-  assert.ok(releaseAt>=0&&waitAt>releaseAt&&acquireAt>waitAt,'camera must be detached, released, then reacquired');
-  assert.match(media,/this\.stream = new MediaStream\(\[videoTrack, \.\.\.this\.rawStream\.getAudioTracks\(\)\]\)/);
-  assert.match(media,/canvas\.width = this\.portrait \? 720 : 1280/);
-  assert.match(media,/canvas\.height = this\.portrait \? 1280 : 720/);
+  const css=await readFile('public/styles.css','utf8');
+  assert.doesNotMatch(frontend,/id="switch-camera"|S\.camera\.switchFacing/);
+  assert.doesNotMatch(media,/switchFacing\(|videoInputs\(|enumerateDevices\(|applyConstraints\(/);
+  assert.match(frontend,/id="open-camera" class="camera-cta camera-open"/);
+  assert.match(frontend,/id="start-record" class="camera-cta camera-record"/);
+  assert.match(frontend,/Bắt đầu quay/);
+  assert.match(css,/\.camera-open\{background:#ff9a32/);
+  assert.match(css,/\.camera-record\{background:#ff6a00/);
+  assert.match(css,/\.camera-primary-actions\{display:grid/);
+  assert.match(frontend,/Đã chọn .*Bấm Mở camera để áp dụng/);
 });
 
 test('media page hides provider branding and detailed analysis output',async()=>{
