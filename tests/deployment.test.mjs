@@ -141,17 +141,17 @@ test('clone timing uses active speech, adaptive speed and tight per-segment tole
 });
 
 
-test('9:16 recorder creates a real 720x1280 canvas stream instead of trusting camera ideal constraints',async()=>{
+test('camera recorder uses a fixed canvas output for true 16:9 and 9:16 recording',async()=>{
   const frontend=await readFile('public/app.js','utf8');
   const media=await readFile('public/media.js','utf8');
   const css=await readFile('public/styles.css','utf8');
-  assert.match(media,/canvas\.width = 720/);
-  assert.match(media,/canvas\.height = 1280/);
-  assert.match(media,/const targetRatio = 9 \/ 16/);
+  assert.match(media,/canvas\.width = this\.portrait \? 720 : 1280/);
+  assert.match(media,/canvas\.height = this\.portrait \? 1280 : 720/);
+  assert.match(media,/const targetRatio = canvas\.width \/ canvas\.height/);
   assert.match(media,/canvas\.captureStream\(30\)/);
-  assert.match(media,/new MediaStream\(\[videoTrack, \.\.\.audioTracks\]\)/);
+  assert.match(media,/this\.stream = new MediaStream\(\[videoTrack, \.\.\.this\.rawStream\.getAudioTracks\(\)\]\)/);
   assert.match(media,/videoBitsPerSecond = this\.portrait \? 2600000 : 2200000/);
-  assert.match(frontend,/Camera đang xuất khung dọc thật 720×1280 \(9:16\)/);
+  assert.match(frontend,/Camera dọc 9:16 đã sẵn sàng/);
   assert.match(frontend,/applyCameraRatioUI/);
   assert.match(css,/\.camera-box\.portrait\{[^}]*aspect-ratio:9\/16/);
 });
