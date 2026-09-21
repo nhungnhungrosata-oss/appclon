@@ -543,8 +543,8 @@ export class Recorder {
   async attachSource(stream) {
     if (!this.sourceVideo) throw new Error('Camera chưa sẵn sàng.');
     const source = this.sourceVideo;
-    source.srcObject = new MediaStream(stream.getVideoTracks());
     const ready = event(source, 'loadedmetadata', 12000);
+    source.srcObject = new MediaStream(stream.getVideoTracks());
     await source.play().catch(() => {});
     await ready;
     if (!source.videoWidth || !source.videoHeight) throw new Error('Không đọc được kích thước camera.');
