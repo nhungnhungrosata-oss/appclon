@@ -148,6 +148,8 @@ test('camera recorder keeps 9:16 framing natural instead of aggressive center cr
   assert.match(media,/canvas\.width = this\.portrait \? 720 : 1280/);
   assert.match(media,/canvas\.height = this\.portrait \? 1280 : 720/);
   assert.match(media,/drawNaturalPortrait/);
+  assert.match(media,/height: \{ ideal: this\.portrait \? 960 : 720 \}/);
+  assert.match(media,/aspectRatio: \{ ideal: this\.portrait \? 4 \/ 3 : 16 \/ 9 \}/);
   assert.match(media,/const containScale = Math\.min/);
   assert.match(media,/const coverScale = Math\.max/);
   assert.match(media,/containScale \* 1\.18/);
