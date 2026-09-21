@@ -430,12 +430,13 @@ function bindEvents(){
  $('#logout').onclick=()=>busy($('#logout'),async()=>{closeCamera();await api('logout',{});releaseUrls();S.session=null;$('#app').innerHTML='';loginScreen()});
 }
 async function boot(){
- S.session=await api('session');await initDB(S.session.username);S.assets=await all('assets');await ensureVideoThumbnails();S.selectedVideo=S.assets.find(a=>a.kind==='video')?.id||null;const jobs=await all('jobs');S.cloneJob=jobs.find(j=>j.type==='video-voice-clone')||newCloneJob(S.selectedVideo||'');S.page='media';
+ S.session=await api('session');await initDB(S.session.username);S.assets=await all('assets');S.selectedVideo=S.assets.find(a=>a.kind==='video')?.id||null;const jobs=await all('jobs');S.cloneJob=jobs.find(j=>j.type==='video-voice-clone')||newCloneJob(S.selectedVideo||'');S.page='media';
  renderApp();bindEvents();
  try{const d=JSON.parse(localStorage.getItem(draftKey())||'{}');$('#script-prompt').value=d.prompt||'';$('#script-editor').value=d.script||'';$('#voice-text').value=d.voice||'';$('#analysis-brief').value=d.brief||''}catch{}
  if(!S.session.providers.deepseek&&S.session.providers.openai)$('#text-provider').value='openai';
  renderVideoLibrary();selectVideo(S.selectedVideo);renderCloneState();if(S.session.role==='admin')renderSettings();updateCounts();
  const latest=S.assets.filter(a=>a.kind==='audio').sort((a,b)=>b.createdAt-a.createdAt)[0];if(latest)showAudio(latest);
+ ensureVideoThumbnails().then(()=>renderVideoLibrary()).catch(()=>{});
 }
 loginScreen();
 boot().catch(e=>{S.session=null;if(e.status!==401){loginScreen();$('#login-error').textContent=e.message}});
