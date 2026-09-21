@@ -527,7 +527,7 @@ export async function replaceVideoAudio(videoBlob, audioBlob, expectedDuration, 
 }
 export class Recorder {
   stream = null; rawStream = null; recorder = null; recording = false;
-  portrait = false; facing = 'user'; audioEnabled = true; isVideo = true;
+  portrait = false; facing = 'user'; audioEnabled = true; isVideo = true; switching = false;
   sourceVideo = null; canvas = null; canvasStream = null; frameHandle = null; drawContext = null;
 
   videoConstraints(facing = this.facing) {
@@ -538,6 +538,58 @@ export class Recorder {
       aspectRatio: { ideal: this.portrait ? 9 / 16 : 16 / 9 },
       frameRate: { ideal: 25, max: 30 }
     };
+  }
+
+  async videoInputs() {
+    if (!navigator.mediaDevices?.enumerateDevices) return [];
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      return devices.filter(d => d.kind === 'videoinput');
+    } catch {
+      return [];
+    }
+  }
+
+  cameraLabelScore(label, facing) {
+    const value = String(label || '').toLowerCase();
+    if (!value) return 0;
+    const rear = /(back|rear|environment|world|facing back|camera sau|traseira|arriere|arrière|rück|后|後)/;
+    const front = /(front|user|facetime|facing front|camera trước|camera truoc|frontal|avant|前)/;
+    return facing === 'environment' ? (rear.test(value) ? 3 : front.test(value) ? -2 : 0) : (front.test(value) ? 3 : rear.test(value) ? -2 : 0);
+  }
+
+  pickVideoInput(devices, currentId, facing) {
+    const others = devices.filter(d => d.deviceId && d.deviceId !== currentId);
+    if (!others.length) return null;
+    return [...others].sort((a,b) => this.cameraLabelScore(b.label, facing) - this.cameraLabelScore(a.label, facing))[0] || null;
+  }
+
+  async acquireVideo({ deviceId = '', facing = this.facing } = {}) {
+    const size = {
+      width: { ideal: this.portrait ? 720 : 1280 },
+      height: { ideal: this.portrait ? 1280 : 720 },
+      frameRate: { ideal: 25, max: 30 }
+    };
+    const attempts = [];
+    if (deviceId) {
+      attempts.push({ ...size, deviceId: { exact: deviceId } });
+      attempts.push({ deviceId: { exact: deviceId } });
+    }
+    attempts.push({ ...size, facingMode: { exact: facing } });
+    attempts.push({ ...size, facingMode: { ideal: facing } });
+
+    let lastError;
+    for (const video of attempts) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video, audio: false });
+        const track = stream.getVideoTracks()[0];
+        if (track) return stream;
+        stream.getTracks().forEach(t => t.stop());
+      } catch (e) {
+        lastError = e;
+      }
+    }
+    throw lastError || new Error('Không mở được camera.');
   }
 
   async attachSource(stream) {
@@ -616,36 +668,74 @@ export class Recorder {
 
   async switchFacing(nextFacing) {
     if (!this.isVideo || !this.sourceVideo || !this.rawStream || !this.stream) throw new Error('Hãy mở camera trước.');
+    if (this.switching) throw new Error('Camera đang chuyển, vui lòng chờ.');
     const next = nextFacing === 'environment' || nextFacing === 'user'
       ? nextFacing
       : (this.facing === 'user' ? 'environment' : 'user');
     if (next === this.facing) return { facing: this.facing, stream: this.stream };
 
-    let fresh;
-    const exact = { ...this.videoConstraints(next), facingMode: { exact: next } };
-    try {
-      fresh = await navigator.mediaDevices.getUserMedia({ video: exact, audio: false });
-    } catch {
-      try { fresh = await navigator.mediaDevices.getUserMedia({ video: this.videoConstraints(next), audio: false }); }
-      catch { throw new Error(next === 'environment' ? 'Không mở được camera sau trên thiết bị này.' : 'Không mở được camera trước trên thiết bị này.'); }
-    }
-    const freshTrack = fresh.getVideoTracks()[0];
-    if (!freshTrack) { fresh.getTracks().forEach(t => t.stop()); throw new Error('Không tìm thấy camera cần chuyển.'); }
-
-    const oldSource = this.sourceVideo.srcObject;
+    this.switching = true;
+    const oldFacing = this.facing;
     const oldVideoTracks = this.rawStream.getVideoTracks();
+    const oldTrack = oldVideoTracks[0];
+    const oldSettings = oldTrack?.getSettings?.() || {};
+    const oldDeviceId = oldSettings.deviceId || '';
     const audioTracks = this.rawStream.getAudioTracks();
+    const devices = await this.videoInputs();
+    const target = this.pickVideoInput(devices, oldDeviceId, next);
+
+    // iOS/Safari and some Android devices cannot open the second camera while
+    // the first physical camera is still active. The recorded video is the
+    // canvas track, so releasing only this raw video track does not stop
+    // MediaRecorder or microphone audio.
+    oldVideoTracks.forEach(t => t.stop());
+
+    let fresh = null;
     try {
+      fresh = await this.acquireVideo({ deviceId: target?.deviceId || '', facing: next });
+      let freshTrack = fresh.getVideoTracks()[0];
+      if (!freshTrack) throw new Error('Không tìm thấy camera mới.');
+
+      const actualId = freshTrack.getSettings?.().deviceId || '';
+      if (target?.deviceId && actualId && actualId !== target.deviceId) {
+        fresh.getTracks().forEach(t => t.stop());
+        fresh = await this.acquireVideo({ deviceId: target.deviceId, facing: next });
+        freshTrack = fresh.getVideoTracks()[0];
+        if (!freshTrack) throw new Error('Không tìm thấy camera mới.');
+      }
+
       await this.attachSource(fresh);
       this.rawStream = new MediaStream([freshTrack, ...audioTracks]);
-      this.facing = next;
-      oldVideoTracks.forEach(t => t.stop());
-      return { facing: this.facing, stream: this.stream };
-    } catch (e) {
-      fresh.getTracks().forEach(t => t.stop());
-      this.sourceVideo.srcObject = oldSource;
-      await this.sourceVideo.play().catch(() => {});
-      throw e;
+      const actualFacing = freshTrack.getSettings?.().facingMode;
+      this.facing = actualFacing === 'user' || actualFacing === 'environment' ? actualFacing : next;
+      return { facing: this.facing, stream: this.stream, deviceId: freshTrack.getSettings?.().deviceId || '' };
+    } catch (switchError) {
+      fresh?.getTracks().forEach(t => t.stop());
+
+      // Best effort recovery of the original camera so an unsuccessful switch
+      // does not leave an in-progress recording without live video.
+      try {
+        const recovered = await this.acquireVideo({ deviceId: oldDeviceId, facing: oldFacing });
+        const recoveredTrack = recovered.getVideoTracks()[0];
+        if (recoveredTrack) {
+          await this.attachSource(recovered);
+          this.rawStream = new MediaStream([recoveredTrack, ...audioTracks]);
+          this.facing = oldFacing;
+        } else {
+          recovered.getTracks().forEach(t => t.stop());
+        }
+      } catch {
+        this.rawStream = new MediaStream(audioTracks);
+      }
+
+      if (devices.length <= 1 && !target) {
+        throw new Error('Trình duyệt chỉ đang cung cấp một camera cho website. Hãy kiểm tra quyền Camera hoặc thử Safari/Chrome mới nhất.');
+      }
+      throw new Error(next === 'environment'
+        ? 'Không chuyển được sang camera sau. Camera trước đã được khôi phục, hãy thử lại.'
+        : 'Không chuyển được sang camera trước. Camera sau đã được khôi phục, hãy thử lại.');
+    } finally {
+      this.switching = false;
     }
   }
 
